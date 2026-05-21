@@ -23,6 +23,15 @@ export interface DaiAPI {
     get: (key: string) => Promise<unknown>;
     set: (key: string, value: unknown) => Promise<{ ok: boolean }>;
   };
+  cloud: {
+    listDataspheres: () => Promise<{ ok?: boolean; data?: unknown; error?: string }>;
+    getActive: () => Promise<{ ok?: boolean; data?: unknown; error?: string }>;
+    setActive: (uri: string) => Promise<{ ok?: boolean; data?: unknown; error?: string }>;
+    listPages: (uri: string, folder?: string) => Promise<{ ok?: boolean; data?: unknown; error?: string }>;
+    listTasks: (dsId: string, planModeId?: string) => Promise<{ ok?: boolean; data?: unknown; error?: string }>;
+    listPlanModes: (dsId: string) => Promise<{ ok?: boolean; data?: unknown; error?: string }>;
+    quickCapture: (text: string, type: 'page' | 'task', opts?: Record<string, unknown>) => Promise<{ ok?: boolean; data?: unknown; error?: string }>;
+  };
 }
 
 const daiAPI: DaiAPI = {
@@ -67,6 +76,16 @@ const daiAPI: DaiAPI = {
   settings: {
     get:  (key)         => ipcRenderer.invoke('settings:get', key),
     set:  (key, value)  => ipcRenderer.invoke('settings:set', { key, value }),
+  },
+
+  cloud: {
+    listDataspheres: ()           => ipcRenderer.invoke('cloud:list-dataspheres'),
+    getActive:       ()           => ipcRenderer.invoke('cloud:get-active'),
+    setActive:       (uri)        => ipcRenderer.invoke('cloud:set-active', uri),
+    listPages:       (uri, folder) => ipcRenderer.invoke('cloud:list-pages', { uri, folder }),
+    listTasks:       (dsId, planModeId) => ipcRenderer.invoke('cloud:list-tasks', { dsId, planModeId }),
+    listPlanModes:   (dsId)       => ipcRenderer.invoke('cloud:list-plan-modes', dsId),
+    quickCapture:    (text, type, opts) => ipcRenderer.invoke('cloud:quick-capture', { text, type, opts }),
   },
 };
 

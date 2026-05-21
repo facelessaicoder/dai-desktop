@@ -13,6 +13,8 @@ let SddEngine: typeof import('./packages/dai-core/dist/index').SddEngine;
 let SddStore: typeof import('./packages/dai-core/dist/index').SddStore;
 let VectorStore: typeof import('./packages/dai-core/dist/index').VectorStore;
 let EmbeddingPipeline: typeof import('./packages/dai-core/dist/index').EmbeddingPipeline;
+let DatasphereClient: typeof import('./packages/dai-core/dist/index').DatasphereClient;
+let DatasphereService: typeof import('./packages/dai-core/dist/index').DatasphereService;
 
 function loadCore() {
   const core = require('./packages/dai-core/dist/index');
@@ -24,7 +26,9 @@ function loadCore() {
   SddEngine        = core.SddEngine;
   SddStore         = core.SddStore;
   VectorStore      = core.VectorStore;
-  EmbeddingPipeline = core.EmbeddingPipeline;
+  EmbeddingPipeline   = core.EmbeddingPipeline;
+  DatasphereClient    = core.DatasphereClient;
+  DatasphereService   = core.DatasphereService;
 }
 
 // ── Persistent settings ───────────────────────────────────────────────────────
@@ -48,6 +52,7 @@ let agentLoop: InstanceType<typeof AgentLoop> | null = null;
 let llm: InstanceType<typeof LocalLLM> | null = null;
 let sddEngine: InstanceType<typeof SddEngine> | null = null;
 let sddStore: InstanceType<typeof SddStore> | null = null;
+let cloudService: InstanceType<typeof DatasphereService> | null = null;
 
 async function initAgent(modelPath: string): Promise<void> {
   if (llm?.isLoaded) return; // already loaded
@@ -76,6 +81,11 @@ function initSdd(): void {
   const dbPath = path.join(app.getPath('userData'), 'sdd.db');
   sddStore = new SddStore(dbPath);
   sddEngine = new SddEngine(sddStore);
+}
+
+function initCloud(apiKey: string): void {
+  const client = new DatasphereClient({ apiKey });
+  cloudService = new DatasphereService(client);
 }
 
 // ── Window factory ─────────────────────────────────────────────────────────────
@@ -129,6 +139,12 @@ app.whenReady().then(() => {
   try {
     loadCore();
     initSdd();
+    const settings = readSettings();
+    const cloudApiKey = settings['cloudApiKey'] as string | undefined
+      ?? settings['dataspheres_api_key'] as string | undefined;
+    if (cloudApiKey) {
+      initCloud(cloudApiKey);
+    }
   } catch (err) {
     console.error('[main] Failed to load dai-core:', err);
   }
@@ -329,5 +345,90 @@ ipcMain.handle('settings:set', (_event, { key, value }: { key: string; value: un
     agentLoop = null;
   }
 
+  // If API key changed, re-init cloud service
+  if ((key === 'cloudApiKey' || key === 'dataspheres_api_key') && value) {
+    try {
+      initCloud(value as string);
+    } catch (err) {
+      console.error('[main] Failed to re-init cloud service:', err);
+    }
+  }
+
   return { ok: true };
+});
+
+// ── IPC: cloud ────────────────────────────────────────────────────────────────
+
+ipcMain.handle('cloud:list-dataspheres', async () => {
+  if (!cloudService) return { error: 'Cloud service not initialized — set API key in Settings' };
+  try {
+    const data = await cloudService.listDataspheres();
+    return { ok: true, data };
+  } catch (err) {
+    return { error: String(err) };
+  }
+});
+
+ipcMain.handle('cloud:get-active', async () => {
+  if (!cloudService) return { ok: true, data: null };
+  try {
+    const data = await cloudService.getActiveDatasphere();
+    return { ok: true, data };
+  } catch (err) {
+    return { error: String(err) };
+  }
+});
+
+ipcMain.handle('cloud:set-active', async (_event, uri: string) => {
+  if (!cloudService) return { error: 'Cloud service not initialized — set API key in Settings' };
+  try {
+    await cloudService.setActiveDatasphere(uri);
+    const data = await cloudService.getActiveDatasphere();
+    return { ok: true, data };
+  } catch (err) {
+    return { error: String(err) };
+  }
+});
+
+ipcMain.handle('cloud:list-pages', async (_event, { uri, folder }: { uri: string; folder?: string }) => {
+  if (!cloudService) return { error: 'Cloud service not initialized — set API key in Settings' };
+  try {
+    const data = await cloudService.client.listPages(uri, { folder, limit: 50 });
+    return { ok: true, data };
+  } catch (err) {
+    return { error: String(err) };
+  }
+});
+
+ipcMain.handle('cloud:list-tasks', async (_event, { dsId, planModeId }: { dsId: string; planModeId?: string }) => {
+  if (!cloudService) return { error: 'Cloud service not initialized — set API key in Settings' };
+  try {
+    const data = await cloudService.client.listTasks(dsId, { planModeId, limit: 100 });
+    return { ok: true, data };
+  } catch (err) {
+    return { error: String(err) };
+  }
+});
+
+ipcMain.handle('cloud:list-plan-modes', async (_event, dsId: string) => {
+  if (!cloudService) return { error: 'Cloud service not initialized — set API key in Settings' };
+  try {
+    const data = await cloudService.client.listPlanModes(dsId);
+    return { ok: true, data };
+  } catch (err) {
+    return { error: String(err) };
+  }
+});
+
+ipcMain.handle('cloud:quick-capture', async (
+  _event,
+  { text, type, opts }: { text: string; type: 'page' | 'task'; opts?: Record<string, unknown> },
+) => {
+  if (!cloudService) return { error: 'Cloud service not initialized — set API key in Settings' };
+  try {
+    const data = await cloudService.quickCapture(text, type, opts as Parameters<typeof cloudService.quickCapture>[2]);
+    return { ok: true, data };
+  } catch (err) {
+    return { error: String(err) };
+  }
 });

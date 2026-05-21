@@ -1,9 +1,49 @@
-export { VectorStore } from './vector/store';
-export { FileIndexer } from './vector/indexer';
+// Agent
+export { AgentLoop }                           from './agent/loop';
+export { ToolRegistry }                        from './agent/tools';
+export { ModelRouter }                         from './agent/router';
+export { LocalLLM }                            from './agent/llm';
+export { HardwareDetect }                      from './agent/hardware';
+export type { HardwareInfo, AccelerationType } from './agent/hardware';
+export type { LLMConfig, ChatMessage }         from './agent/llm';
+export type { LocalModelConfig }               from './agent/router';
+export type { AgentEvent, AgentLoopOptions }   from './agent/loop';
+
+// Vector
+export { VectorStore }       from './vector/store';
+export { FileIndexer }       from './vector/indexer';
 export { EmbeddingPipeline } from './vector/embeddings';
-export { AgentLoop } from './agent/loop';
-export { ToolRegistry } from './agent/tools';
-export { ModelRouter } from './agent/router';
-export { ProcessManager } from './process/manager';
-export { OllamaManager } from './process/ollama';
-export { McpRegistry } from './process/mcp';
+
+// Process
+export { ProcessManager }    from './process/manager';
+export { McpRegistry }       from './process/mcp';
+export type { McpServerConfig } from './process/mcp';
+
+// SDD — Local Spec-Driven Development engine
+export { SddStore }   from './sdd/store';
+export { SddEngine }  from './sdd/engine';
+export type {
+  SddColumn,
+  Initiative,
+  Task,
+  Priority,
+  ValidationResult,
+  ValidationGate,
+  BoardView,
+  BoardColumn,
+  TaskComment,
+} from './sdd/types';
+export { COLUMN_ORDER, COLUMN_LABELS } from './sdd/types';
+
+// Cloud — Dataspheres API bridge
+export { DatasphereClient, DatasphereService, AuthError, NotFoundError, ApiError } from './cloud/service';
+export type {
+  Datasphere,
+  Page,
+  Task as DsTask,
+  PlanMode,
+  StatusGroup,
+  Comment as DsComment,
+  CreatePageInput,
+  CreateTaskInput,
+} from './cloud/types';
