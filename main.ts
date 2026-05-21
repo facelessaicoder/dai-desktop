@@ -17,7 +17,7 @@ let DatasphereClient: typeof import('./packages/dai-core/dist/index').Datasphere
 let DatasphereService: typeof import('./packages/dai-core/dist/index').DatasphereService;
 
 function loadCore() {
-  const core = require('./packages/dai-core/dist/index');
+  const core = require('../packages/dai-core/dist/index');
   AgentLoop        = core.AgentLoop;
   LocalLLM         = core.LocalLLM;
   ToolRegistry     = core.ToolRegistry;
@@ -32,19 +32,22 @@ function loadCore() {
 }
 
 // ── Persistent settings ───────────────────────────────────────────────────────
-const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
+function settingsPath(): string {
+  return path.join(app.getPath('userData'), 'settings.json');
+}
 
 function readSettings(): Record<string, unknown> {
   try {
-    return JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
+    return JSON.parse(fs.readFileSync(settingsPath(), 'utf-8'));
   } catch {
     return {};
   }
 }
 
 function writeSettings(settings: Record<string, unknown>): void {
-  fs.mkdirSync(path.dirname(SETTINGS_PATH), { recursive: true });
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8');
+  const p = settingsPath();
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(settings, null, 2), 'utf-8');
 }
 
 // ── Runtime singletons ────────────────────────────────────────────────────────

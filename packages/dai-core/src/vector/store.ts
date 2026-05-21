@@ -42,9 +42,9 @@ export class VectorStore {
     if (chunks.length === 0) return;
 
     if (!this.table) {
-      this.table = await this.db.createTable(this.tableName, chunks);
+      this.table = await this.db.createTable(this.tableName, chunks as unknown as Record<string, unknown>[]);
     } else {
-      await this.table.add(chunks);
+      await this.table.add(chunks as unknown as Record<string, unknown>[]);
     }
   }
 

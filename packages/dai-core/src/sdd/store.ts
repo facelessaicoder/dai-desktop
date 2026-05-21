@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import Database from 'better-sqlite3';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
@@ -11,13 +11,13 @@ import {
 const DEFAULT_DB_PATH = path.join(os.homedir(), '.dai-desktop', 'sdd.db');
 
 export class SddStore {
-  private db: DatabaseSync;
+  private db: Database.Database;
 
   constructor(dbPath = DEFAULT_DB_PATH) {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    this.db = new DatabaseSync(dbPath);
-    this.db.exec('PRAGMA journal_mode = WAL');
-    this.db.exec('PRAGMA foreign_keys = ON');
+    this.db = new Database(dbPath);
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('foreign_keys = ON');
     this._migrate();
   }
 

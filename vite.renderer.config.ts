@@ -5,13 +5,10 @@ import path from 'path';
 export default defineConfig({
   plugins: [react()],
   base: './',
-  root: '.',
+  root: path.resolve(__dirname, 'src/renderer'),
   build: {
-    outDir: 'dist/renderer',
+    outDir: path.resolve(__dirname, 'dist/renderer'),
     emptyOutDir: true,
-    rollupOptions: {
-      input: path.resolve(__dirname, 'src/renderer/index.html'),
-    },
   },
   resolve: {
     alias: {

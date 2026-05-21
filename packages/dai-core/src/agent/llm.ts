@@ -1,17 +1,11 @@
-import {
-  getLlama,
-  LlamaChatSession,
-  LlamaModel,
-  LlamaContext,
-  LlamaEmbeddingContext,
-  LlamaGrammar,
-  type Llama,
-} from 'node-llama-cpp';
 import { HardwareInfo, HardwareDetect } from './hardware';
 
+// node-llama-cpp is ESM-only — loaded lazily via dynamic import when a model is actually configured
+type NodeLlamaCpp = typeof import('node-llama-cpp');
+
 export interface LLMConfig {
-  modelPath: string;        // absolute path to .gguf chat model
-  embedModelPath?: string;  // separate embedding model (nomic-embed-text.gguf)
+  modelPath: string;
+  embedModelPath?: string;
   temperature?: number;
   contextSize?: number;
 }
@@ -19,7 +13,7 @@ export interface LLMConfig {
 export interface LLMTool {
   name: string;
   description: string;
-  parameters: Record<string, unknown>; // JSON Schema
+  parameters: Record<string, unknown>;
 }
 
 export type ChatRole = 'system' | 'user' | 'assistant';
@@ -32,54 +26,56 @@ export interface ChatMessage {
 export class LocalLLM {
   private config: LLMConfig;
   private hw: HardwareInfo;
-  private llama?: Llama;
-  private model?: LlamaModel;
-  private context?: LlamaContext;
-  private embedModel?: LlamaModel;
-  private embedContext?: LlamaEmbeddingContext;
+  private _llama?: Awaited<ReturnType<NodeLlamaCpp['getLlama']>>;
+  private _model?: Awaited<ReturnType<Awaited<ReturnType<NodeLlamaCpp['getLlama']>>['loadModel']>>;
+  private _context?: Awaited<ReturnType<Awaited<ReturnType<Awaited<ReturnType<NodeLlamaCpp['getLlama']>>['loadModel']>>['createContext']>>;
+  private _embedModel?: Awaited<ReturnType<Awaited<ReturnType<NodeLlamaCpp['getLlama']>>['loadModel']>>;
+  private _embedCtx?: any;
+  private _lib?: NodeLlamaCpp;
 
   constructor(config: LLMConfig, hw: HardwareInfo) {
     this.config = config;
     this.hw = hw;
   }
 
-  async load(): Promise<void> {
-    this.llama = await getLlama({ gpu: this._gpuBackend() });
+  private async lib(): Promise<NodeLlamaCpp> {
+    if (!this._lib) {
+      this._lib = await import('node-llama-cpp') as NodeLlamaCpp;
+    }
+    return this._lib;
+  }
 
-    this.model = await this.llama.loadModel({ modelPath: this.config.modelPath });
-    this.context = await this.model.createContext({
+  async load(): Promise<void> {
+    const { getLlama } = await this.lib();
+    this._llama = await getLlama({ gpu: this._gpuBackend() });
+    this._model = await this._llama.loadModel({ modelPath: this.config.modelPath });
+    this._context = await this._model.createContext({
       contextSize: this.config.contextSize ?? HardwareDetect.contextSize(this.hw),
     });
-
     if (this.config.embedModelPath) {
-      this.embedModel = await this.llama.loadModel({ modelPath: this.config.embedModelPath });
-      this.embedContext = await this.embedModel.createEmbeddingContext();
+      this._embedModel = await this._llama.loadModel({ modelPath: this.config.embedModelPath });
+      this._embedCtx = await this._embedModel.createEmbeddingContext();
     }
   }
 
-  // Stream chat tokens — yields text chunks as they arrive
   async *chat(
     messages: ChatMessage[],
     options: { systemPrompt?: string; tools?: LLMTool[] } = {},
   ): AsyncGenerator<string> {
-    if (!this.context) throw new Error('Model not loaded — call load() first');
+    const { LlamaChatSession } = await this.lib();
+    if (!this._context) throw new Error('Model not loaded — call load() first');
 
     const session = new LlamaChatSession({
-      contextSequence: this.context.getSequence(),
+      contextSequence: this._context.getSequence(),
       systemPrompt: options.systemPrompt ?? 'You are Ari, the AI built into dai-desktop.',
     });
 
-    // Replay history into the session (skip last user message — that's the prompt)
     for (let i = 0; i < messages.length - 1; i++) {
       const m = messages[i];
       if (m.role === 'user') {
-        // Pair with next assistant if available
         const next = messages[i + 1];
         if (next?.role === 'assistant') {
-          await session.prompt(m.content, {
-            onTextChunk: () => {},
-            maxTokens: 1,  // suppress — just replaying context
-          });
+          await session.prompt(m.content, { onTextChunk: () => {}, maxTokens: 1 });
           i++;
         }
       }
@@ -91,48 +87,42 @@ export class LocalLLM {
     const chunks: string[] = [];
     await session.prompt(last.content, {
       temperature: this.config.temperature ?? 0.7,
-      onTextChunk: (chunk) => { chunks.push(chunk); },
+      onTextChunk: (chunk: string) => { chunks.push(chunk); },
     });
-
     for (const chunk of chunks) yield chunk;
   }
 
-  // Single-shot JSON output for tool call parsing
-  async complete(prompt: string, grammar?: string): Promise<string> {
-    if (!this.context) throw new Error('Model not loaded — call load() first');
-
-    const session = new LlamaChatSession({
-      contextSequence: this.context.getSequence(),
-    });
-
+  async complete(prompt: string): Promise<string> {
+    const { LlamaChatSession } = await this.lib();
+    if (!this._context) throw new Error('Model not loaded — call load() first');
+    const session = new LlamaChatSession({ contextSequence: this._context.getSequence() });
     let result = '';
     await session.prompt(prompt, {
       temperature: 0.1,
-      grammar: grammar ? await LlamaGrammar.getFor(this.llama!, 'json') : undefined,
-      onTextChunk: (c) => { result += c; },
+      onTextChunk: (c: string) => { result += c; },
     });
     return result;
   }
 
   async embed(texts: string[]): Promise<number[][]> {
-    const ctx = this.embedContext ?? await this._lazyEmbedContext();
-    const results = await Promise.all(texts.map((t) => ctx.getEmbeddingFor(t)));
-    return results.map((r) => Array.from(r.vector));
+    const ctx = this._embedCtx ?? await this._lazyEmbedCtx();
+    const results = await Promise.all(texts.map((t: string) => ctx.getEmbeddingFor(t)));
+    return results.map((r: any) => Array.from(r.vector) as number[]);
   }
 
   get isLoaded(): boolean {
-    return !!this.model && !!this.context;
+    return !!this._model && !!this._context;
   }
 
   unload(): void {
-    this.context?.dispose();
-    this.model?.dispose();
-    this.embedContext?.dispose();
-    this.embedModel?.dispose();
-    this.context = undefined;
-    this.model = undefined;
-    this.embedContext = undefined;
-    this.embedModel = undefined;
+    this._context?.dispose();
+    this._model?.dispose();
+    this._embedCtx?.dispose();
+    this._embedModel?.dispose();
+    this._context = undefined;
+    this._model = undefined;
+    this._embedCtx = undefined;
+    this._embedModel = undefined;
   }
 
   private _gpuBackend() {
@@ -143,10 +133,9 @@ export class LocalLLM {
     return false;
   }
 
-  // Lazily create embedding context from the chat model if no dedicated embed model
-  private async _lazyEmbedContext(): Promise<LlamaEmbeddingContext> {
-    if (!this.model) throw new Error('Model not loaded');
-    this.embedContext = await this.model.createEmbeddingContext();
-    return this.embedContext;
+  private async _lazyEmbedCtx(): Promise<any> {
+    if (!this._model) throw new Error('Model not loaded');
+    this._embedCtx = await this._model.createEmbeddingContext();
+    return this._embedCtx;
   }
 }
