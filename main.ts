@@ -1,0 +1,333 @@
+import { app, BrowserWindow, ipcMain, session } from 'electron';
+import * as path from 'path';
+import * as fs from 'fs';
+
+// ── Lazy-import dai-core to avoid loading node-llama-cpp until needed ─────────
+// These are resolved at runtime from the compiled package output.
+let AgentLoop: typeof import('./packages/dai-core/dist/index').AgentLoop;
+let LocalLLM: typeof import('./packages/dai-core/dist/index').LocalLLM;
+let ToolRegistry: typeof import('./packages/dai-core/dist/index').ToolRegistry;
+let ModelRouter: typeof import('./packages/dai-core/dist/index').ModelRouter;
+let HardwareDetect: typeof import('./packages/dai-core/dist/index').HardwareDetect;
+let SddEngine: typeof import('./packages/dai-core/dist/index').SddEngine;
+let SddStore: typeof import('./packages/dai-core/dist/index').SddStore;
+let VectorStore: typeof import('./packages/dai-core/dist/index').VectorStore;
+let EmbeddingPipeline: typeof import('./packages/dai-core/dist/index').EmbeddingPipeline;
+
+function loadCore() {
+  const core = require('./packages/dai-core/dist/index');
+  AgentLoop        = core.AgentLoop;
+  LocalLLM         = core.LocalLLM;
+  ToolRegistry     = core.ToolRegistry;
+  ModelRouter      = core.ModelRouter;
+  HardwareDetect   = core.HardwareDetect;
+  SddEngine        = core.SddEngine;
+  SddStore         = core.SddStore;
+  VectorStore      = core.VectorStore;
+  EmbeddingPipeline = core.EmbeddingPipeline;
+}
+
+// ── Persistent settings ───────────────────────────────────────────────────────
+const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
+
+function readSettings(): Record<string, unknown> {
+  try {
+    return JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeSettings(settings: Record<string, unknown>): void {
+  fs.mkdirSync(path.dirname(SETTINGS_PATH), { recursive: true });
+  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8');
+}
+
+// ── Runtime singletons ────────────────────────────────────────────────────────
+let agentLoop: InstanceType<typeof AgentLoop> | null = null;
+let llm: InstanceType<typeof LocalLLM> | null = null;
+let sddEngine: InstanceType<typeof SddEngine> | null = null;
+let sddStore: InstanceType<typeof SddStore> | null = null;
+
+async function initAgent(modelPath: string): Promise<void> {
+  if (llm?.isLoaded) return; // already loaded
+
+  const hw = HardwareDetect.detect();
+  const config = { modelPath, temperature: 0.7 };
+  llm = new LocalLLM(config, hw);
+
+  const settings = readSettings();
+  const dbPath = path.join(app.getPath('userData'), 'vector.db');
+  const vectorStore = await VectorStore.open(dbPath);
+  const embedder = new EmbeddingPipeline(vectorStore);
+  const tools = ToolRegistry.createDefaultTools(vectorStore, embedder);
+  const router = new ModelRouter({
+    modelPath,
+    modelName: path.basename(modelPath),
+    dataspheres_api_key: settings['dataspheres_api_key'] as string | undefined,
+  });
+
+  await llm.load();
+  agentLoop = new AgentLoop(llm, tools, router);
+}
+
+function initSdd(): void {
+  if (sddEngine) return;
+  const dbPath = path.join(app.getPath('userData'), 'sdd.db');
+  sddStore = new SddStore(dbPath);
+  sddEngine = new SddEngine(sddStore);
+}
+
+// ── Window factory ─────────────────────────────────────────────────────────────
+function createWindow(): BrowserWindow {
+  const isDev = process.env.NODE_ENV === 'development';
+
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+    frame: process.platform !== 'darwin',
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
+    vibrancy: process.platform === 'darwin' ? 'under-window' : undefined,
+    backgroundColor: '#08090E',
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+
+  if (isDev) {
+    win.loadURL(process.env.RENDERER_DEV_URL ?? 'http://localhost:5173');
+    win.webContents.openDevTools({ mode: 'detach' });
+  } else {
+    win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  }
+
+  win.once('ready-to-show', () => win.show());
+
+  return win;
+}
+
+// ── App lifecycle ──────────────────────────────────────────────────────────────
+app.whenReady().then(() => {
+  // Allow local file loads inside iframes/webviews for the planner panel
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self' file: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'",
+        ],
+      },
+    });
+  });
+
+  try {
+    loadCore();
+    initSdd();
+  } catch (err) {
+    console.error('[main] Failed to load dai-core:', err);
+  }
+
+  createWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+// ── IPC: agent:chat ────────────────────────────────────────────────────────────
+// Streaming: tokens are pushed via agent:token events, then invoke resolves with done/error.
+ipcMain.handle('agent:chat', async (event, { message, history }) => {
+  const settings = readSettings();
+  const modelPath = (settings['modelPath'] as string | undefined) ?? process.env.LOCAL_MODEL_PATH;
+
+  if (!modelPath) {
+    return {
+      error: true,
+      message: 'No local model configured. Set the model path in Settings → Model Path.',
+    };
+  }
+
+  if (!fs.existsSync(modelPath)) {
+    return {
+      error: true,
+      message: `Model file not found at: ${modelPath}. Update the path in Settings.`,
+    };
+  }
+
+  try {
+    await initAgent(modelPath);
+  } catch (err) {
+    return { error: true, message: `Failed to load model: ${String(err)}` };
+  }
+
+  if (!agentLoop) {
+    return { error: true, message: 'Agent loop failed to initialize.' };
+  }
+
+  try {
+    for await (const event_ of agentLoop.run(message, history ?? [])) {
+      if (event_.type === 'text') {
+        event.sender.send('agent:token', event_.data as string);
+      } else if (event_.type === 'tool_use') {
+        event.sender.send('agent:tool-use', event_.data);
+      } else if (event_.type === 'tool_result') {
+        event.sender.send('agent:tool-result', event_.data);
+      } else if (event_.type === 'done') {
+        event.sender.send('agent:done', event_.data);
+      } else if (event_.type === 'error') {
+        return { error: true, message: String(event_.data) };
+      }
+    }
+    return { ok: true };
+  } catch (err) {
+    return { error: true, message: String(err) };
+  }
+});
+
+// ── IPC: sdd:dispatch ─────────────────────────────────────────────────────────
+ipcMain.handle('sdd:dispatch', (event, { type, payload }) => {
+  if (!sddEngine || !sddStore) {
+    return { error: 'SDD engine not initialized' };
+  }
+
+  try {
+    switch (type) {
+      case 'sdd:list-initiatives':
+        return { ok: true, data: sddStore.listInitiatives() };
+
+      case 'sdd:get-board': {
+        const { initiativeId } = payload as { initiativeId: string };
+        return { ok: true, data: sddEngine.getBoardView(initiativeId) };
+      }
+
+      case 'sdd:new-initiative': {
+        const { name, northStar, projectType, description } = payload as {
+          name: string;
+          northStar?: string;
+          projectType: string;
+          description?: string;
+        };
+        const initiative = sddStore.createInitiative({
+          name,
+          description: description ?? '',
+          northStar: northStar ?? '',
+          projectType: projectType as import('./packages/dai-core/dist/index').Initiative['projectType'],
+        });
+        return { ok: true, data: initiative };
+      }
+
+      case 'sdd:new-task': {
+        const { initiativeId, column, title, description, priority, tags } = payload as {
+          initiativeId: string;
+          column: import('./packages/dai-core/dist/index').SddColumn;
+          title: string;
+          description?: string;
+          priority?: import('./packages/dai-core/dist/index').Priority;
+          tags?: string[];
+        };
+        const task = sddStore.createTask({
+          initiativeId,
+          column,
+          title,
+          description: description ?? '',
+          priority: priority ?? 'medium',
+          tags: tags ?? [],
+        });
+        return { ok: true, data: task };
+      }
+
+      case 'sdd:move-task': {
+        const { taskId, column } = payload as {
+          taskId: string;
+          column: import('./packages/dai-core/dist/index').SddColumn;
+        };
+        sddEngine.moveTask(taskId, column);
+        const task = sddStore.getTask(taskId);
+        if (!task) return { error: 'Task not found' };
+        return { ok: true, data: sddEngine.getBoardView(task.initiativeId) };
+      }
+
+      case 'sdd:start-task': {
+        const { taskId } = payload as { taskId: string };
+        sddEngine.startTask(taskId);
+        const task = sddStore.getTask(taskId);
+        if (!task) return { error: 'Task not found' };
+        return { ok: true, data: sddEngine.getBoardView(task.initiativeId) };
+      }
+
+      case 'sdd:pass-validation': {
+        const { taskId, evidence } = payload as { taskId: string; evidence: string };
+        sddEngine.passValidation(taskId, evidence);
+        const task = sddStore.getTask(taskId);
+        if (!task) return { error: 'Task not found' };
+        return { ok: true, data: sddEngine.getBoardView(task.initiativeId) };
+      }
+
+      case 'sdd:fail-validation': {
+        const { taskId, evidence } = payload as { taskId: string; evidence: string };
+        sddEngine.failValidation(taskId, evidence);
+        const task = sddStore.getTask(taskId);
+        if (!task) return { error: 'Task not found' };
+        return { ok: true, data: sddEngine.getBoardView(task.initiativeId) };
+      }
+
+      case 'sdd:open-task': {
+        const { taskId } = payload as { taskId: string };
+        return { ok: true, data: sddStore.getTask(taskId) };
+      }
+
+      case 'sdd:update-task': {
+        const { taskId, patch } = payload as { taskId: string; patch: Record<string, unknown> };
+        sddStore.updateTask(taskId, patch);
+        const task = sddStore.getTask(taskId);
+        if (!task) return { error: 'Task not found' };
+        return { ok: true, data: sddEngine.getBoardView(task.initiativeId) };
+      }
+
+      default:
+        return { error: `Unknown SDD message type: ${type}` };
+    }
+  } catch (err) {
+    return { error: String(err) };
+  }
+});
+
+// ── IPC: hardware:info ─────────────────────────────────────────────────────────
+ipcMain.handle('hardware:info', () => {
+  try {
+    return { ok: true, data: HardwareDetect.detect() };
+  } catch (err) {
+    return { error: String(err) };
+  }
+});
+
+// ── IPC: settings ─────────────────────────────────────────────────────────────
+ipcMain.handle('settings:get', (_event, key: string) => {
+  const settings = readSettings();
+  return settings[key] ?? null;
+});
+
+ipcMain.handle('settings:set', (_event, { key, value }: { key: string; value: unknown }) => {
+  const settings = readSettings();
+  settings[key] = value;
+  writeSettings(settings);
+
+  // If model path changed, unload current model so next chat reloads
+  if (key === 'modelPath' && llm) {
+    llm.unload();
+    llm = null;
+    agentLoop = null;
+  }
+
+  return { ok: true };
+});
