@@ -1,0 +1,52 @@
+{
+  "name": "dai-desktop",
+  "version": "0.1.0",
+  "description": "Local-first AI workspace — Code-OSS fork with Ari embedded",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "bootstrap": "npm install && npm run build:core",
+    "build:core": "npm run build --workspace=packages/dai-core",
+    "build:ari-panel": "npm run build --workspace=packages/ari-panel",
+    "build:artifact-panel": "npm run build --workspace=packages/artifact-panel",
+    "build:process-manager": "npm run build --workspace=packages/process-manager",
+    "dev": "electron . --inspect=5858",
+    "package": "electron-builder",
+    "test": "npm run test --workspaces",
+    "lint": "eslint packages/*/src --ext .ts,.tsx"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.0.0",
+    "typescript": "^5.4.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0"
+  },
+  "build": {
+    "appId": "ai.dataspheres.dai-desktop",
+    "productName": "dai-desktop",
+    "copyright": "Copyright © 2026 facelessaicoder",
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icons/icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icons/icon.png"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icons/icon.ico"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+out/
+.vscode-test/
+*.vsix
+*.log
+.env
+.env.local
+packages/*/dist/
+packages/*/node_modules/
+~/.dai-desktop/

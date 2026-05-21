@@ -1,0 +1,9 @@
+export { VectorStore } from './vector/store';
+export { FileIndexer } from './vector/indexer';
+export { EmbeddingPipeline } from './vector/embeddings';
+export { AgentLoop } from './agent/loop';
+export { ToolRegistry } from './agent/tools';
+export { ModelRouter } from './agent/router';
+export { ProcessManager } from './process/manager';
+export { OllamaManager } from './process/ollama';
+export { McpRegistry } from './process/mcp';
