@@ -1,0 +1,45 @@
+{
+  "name": "dai-ari",
+  "displayName": "Ari — Local Agent",
+  "description": "Ari embedded into dai-desktop: local SDD planner, agent loop, filesystem indexing",
+  "version": "0.1.0",
+  "publisher": "dataspheres-ai",
+  "engines": { "vscode": "^1.87.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "dai.openPlanner",
+        "title": "Open SDD Planner",
+        "category": "Ari"
+      },
+      {
+        "command": "dai.newInitiative",
+        "title": "New Initiative",
+        "category": "Ari"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dai-ari",
+          "title": "Ari",
+          "icon": "media/ari-icon.svg"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev":   "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "@dai-desktop/core": "*"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.87.0",
+    "typescript": "^5.4.0"
+  }
+}

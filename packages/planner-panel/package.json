@@ -1,0 +1,24 @@
+{
+  "name": "@dai-desktop/planner-panel",
+  "version": "0.1.0",
+  "description": "Local SDD Kanban board WebView panel",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@dai-desktop/ui":   "*",
+    "@dai-desktop/core": "*",
+    "framer-motion": "^11.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "typescript": "^5.4.0",
+    "vite": "^5.0.0"
+  }
+}

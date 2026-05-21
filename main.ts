@@ -63,8 +63,9 @@ async function initAgent(modelPath: string): Promise<void> {
 
   const settings = readSettings();
   const dbPath = path.join(app.getPath('userData'), 'vector.db');
-  const vectorStore = await VectorStore.open(dbPath);
-  const embedder = new EmbeddingPipeline(vectorStore);
+  const vectorStore = new VectorStore(dbPath);
+  await vectorStore.init();
+  const embedder = new EmbeddingPipeline(llm);
   const tools = ToolRegistry.createDefaultTools(vectorStore, embedder);
   const router = new ModelRouter({
     modelPath,

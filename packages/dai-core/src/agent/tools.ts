@@ -23,6 +23,10 @@ export class ToolRegistry {
     return tool.execute(input);
   }
 
+  names(): string[] {
+    return Array.from(this.tools.keys());
+  }
+
   toAnthropicSchema() {
     return Array.from(this.tools.values()).map((t) => ({
       name: t.name,

@@ -1,46 +1,40 @@
-export type ModelTarget = 'fast' | 'smart' | 'local' | 'auto';
+// Local-first. The GGUF model on-device is always the brain.
+// Dataspheres API key is for platform sync (MCP) — not for AI inference.
 
-export interface ModelConfig {
-  anthropic: { fast: string; smart: string };
-  openai: { fast: string; smart: string };
-  ollama: { default: string };
-  preference: 'anthropic' | 'openai' | 'ollama';
+export interface LocalModelConfig {
+  modelPath: string;         // absolute path to .gguf chat model
+  embedModelPath?: string;   // optional dedicated nomic-embed-text.gguf
+  modelName: string;         // display name e.g. "Gemma 4 E4B"
+  modelSizeGB?: number;      // for display in System panel
+  dataspheres_api_key?: string;
 }
 
-const DEFAULT_CONFIG: ModelConfig = {
-  anthropic: { fast: 'claude-haiku-4-5-20251001', smart: 'claude-sonnet-4-6' },
-  openai: { fast: 'gpt-4o-mini', smart: 'gpt-4o' },
-  ollama: { default: 'llama3.2:3b' },
-  preference: 'anthropic',
-};
-
 export class ModelRouter {
-  private config: ModelConfig;
+  private config: LocalModelConfig;
 
-  constructor(config?: Partial<ModelConfig>) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+  constructor(config: LocalModelConfig) {
+    this.config = config;
   }
 
-  resolve(target?: ModelTarget): string {
-    const t = target ?? 'auto';
+  get modelPath():          string           { return this.config.modelPath; }
+  get embedModelPath():     string|undefined { return this.config.embedModelPath; }
+  get modelName():          string           { return this.config.modelName; }
+  get modelSizeGB():        number|undefined { return this.config.modelSizeGB; }
+  get dataspheres_key():    string|undefined { return this.config.dataspheres_api_key; }
 
-    if (t === 'local') return `ollama/${this.config.ollama.default}`;
-
-    const pref = this.config.preference;
-    if (pref === 'anthropic') {
-      return t === 'fast' ? this.config.anthropic.fast : this.config.anthropic.smart;
-    }
-    if (pref === 'openai') {
-      return t === 'fast' ? this.config.openai.fast : this.config.openai.smart;
-    }
-    return `ollama/${this.config.ollama.default}`;
+  isLocalReady(): boolean {
+    return !!this.config.modelPath;
   }
 
-  setPreference(pref: ModelConfig['preference']): void {
-    this.config.preference = pref;
+  isDataspheresSynced(): boolean {
+    return !!this.config.dataspheres_api_key;
   }
 
-  setOllamaModel(model: string): void {
-    this.config.ollama.default = model;
+  update(patch: Partial<LocalModelConfig>): void {
+    this.config = { ...this.config, ...patch };
+  }
+
+  toJSON(): LocalModelConfig {
+    return { ...this.config };
   }
 }
