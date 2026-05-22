@@ -31,7 +31,7 @@
     "build:renderer": "vite build --config vite.renderer.config.ts",
     "build:main": "tsc -p tsconfig.main.json",
     "dev:renderer": "vite --config vite.renderer.config.ts",
-    "dev": "cross-env ELECTRON_RUN_AS_NODE= NODE_ENV=development electron . --inspect=5858",
+    "dev": "node scripts/dev.js",
     "package": "npm run build:core && npm run build:renderer && npm run build:main && electron-builder",
     "test": "npm run test --workspaces",
     "integration-test": "node --experimental-sqlite --no-warnings=ExperimentalWarning integration_test.mjs",
