@@ -150,8 +150,8 @@ export function CloudPanel() {
           <motion.div style={iconRing} animate={{ boxShadow: [`0 0 12px ${color.accentDim}`, `0 0 28px ${color.accentDim}`, `0 0 12px ${color.accentDim}`] }} transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}>
             <Cloud size={28} strokeWidth={1.5} style={{ color: color.accent }} />
           </motion.div>
-          <h2 style={{ fontSize: font.display, color: color.textPrimary, fontWeight: font.light }}>Connect to Dataspheres</h2>
-          <p style={subText}>Enter your API key in Settings to sync tasks, pages, and research with the cloud.</p>
+          <h2 style={{ fontSize: font.display, color: color.textPrimary, fontWeight: font.light }}>Connect to Dataspheres AI</h2>
+          <p style={subText}>Enter your Dataspheres AI API key in Settings to sync tasks, pages, and research.</p>
           <SettingsLink />
         </div>
       </PanelShell>
@@ -164,7 +164,7 @@ export function CloudPanel() {
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div style={header}>
         <span style={{ fontSize: font.small, color: color.textDim, fontWeight: font.medium, letterSpacing: '0.06em' }}>
-          CLOUD SYNC
+          DATASPHERES AI
         </span>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: space[2] }}>

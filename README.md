@@ -1,76 +1,104 @@
 # dai-desktop
 
-> Local-first AI workspace — code, content, research, artifacts. Ari built in. Zero required cloud.
+**The official open-source desktop client for [Dataspheres AI](https://dataspheres.ai).**
 
-Built on [Code-OSS](https://github.com/microsoft/vscode) (VS Code open source, MIT) with Ari (dai-skills) as the core intelligence layer. Think Cursor, but for any workflow — not just code.
+A local-first Electron app that puts your entire Dataspheres AI workspace on your desktop — pages, tasks, research, datasets, AI chat, and more. Runs on Windows, macOS, and Linux.
 
-## Architecture
+> **Dataspheres AI** is the all-in-one AI platform for knowledge work. [Sign up free →](https://dataspheres.ai)
+
+---
+
+## What it does
+
+- **Chat with Ari** — Dataspheres AI's built-in assistant, available right on your desktop. Powered by a local GGUF model, Ollama, or the Claude API.
+- **Full Dataspheres AI workspace** — browse pages, manage planner boards, run research threads, and access your datasets without opening a browser.
+- **Local model support** — load any `.gguf` file and run inference entirely on-device (CPU / CUDA / Metal / Vulkan via llama.cpp). No cloud required to get started.
+- **Multi-model routing** — automatically falls back from local → Ollama → Claude API depending on what's available and loaded.
+- **Spec-Driven Development (SDD)** — built-in engineering lifecycle board: North Stars → Epics → Execution → Validation → Done, powered by Dataspheres AI's planner.
+- **Encrypted settings** — API keys stored in the OS keychain via Electron `safeStorage`. Never written to disk in plaintext.
+
+---
+
+## Getting started
+
+### Prerequisites
+
+- Node.js ≥ 20, npm ≥ 10
+- A [Dataspheres AI](https://dataspheres.ai) account — free tier available, no credit card required
+
+### Install and run
+
+```bash
+git clone https://github.com/facelessaicoder/dai-desktop.git
+cd dai-desktop
+npm run bootstrap   # install deps + build all packages
+npm run dev         # launch in dev mode
+```
+
+### Connect to Dataspheres AI
+
+1. Open **Settings** in the app
+2. Paste your Dataspheres AI API key — get one at [dataspheres.ai/app/developers](https://dataspheres.ai/app/developers)
+3. Everything syncs automatically to your workspace
+
+### Use a local AI model (optional)
+
+1. Download any GGUF model (e.g. from [huggingface.co/models?library=gguf](https://huggingface.co/models?library=gguf))
+2. Settings → Local Model → **Browse**, select the file
+3. Click **Reload** — the model loads in-process, Ari switches to it instantly
+
+---
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Shell | Electron 31 |
+| Renderer | React 18 + Vite |
+| Local AI | node-llama-cpp (llama.cpp bindings) |
+| Remote AI | Ollama REST API + Anthropic Claude API |
+| Platform | Dataspheres AI REST API |
+| Local DB | better-sqlite3 |
+| Build | TypeScript 5, electron-builder |
+
+---
+
+## Project structure
 
 ```
 dai-desktop/
+├── main.ts              # Electron main process — IPC, model loading, Ollama polling
+├── preload.ts           # Secure context bridge (contextIsolation)
+├── src/renderer/        # React UI
+│   └── panels/
+│       ├── ChatPanel.tsx      # Ari chat with streaming + backend badge
+│       ├── CloudPanel.tsx     # Dataspheres AI workspace browser
+│       ├── PlannerPanel.tsx   # Kanban board (SDD lifecycle)
+│       └── SettingsPanel.tsx  # Model path, API keys, hardware info
 ├── packages/
-│   ├── dai-core/          # Agent loop, LanceDB vector store, process manager
-│   │   └── src/
-│   │       ├── agent/     # AgentLoop, ToolRegistry, ModelRouter
-│   │       ├── vector/    # VectorStore, FileIndexer, EmbeddingPipeline
-│   │       └── process/   # ProcessManager, OllamaManager, McpRegistry
-│   ├── ari-panel/         # React WebView: chat UI, streaming, tool-use cards
-│   ├── artifact-panel/    # Tiptap document editor WebView
-│   └── process-manager/   # Process health dashboard WebView
-├── extensions/
-│   └── dai-ari/           # VS Code extension bridging panels → dai-core
-├── assets/                # Icons, splash screens
-└── CLAUDE.md              # Architecture decisions, SDD spec IDs
+│   ├── dai-core/        # Agent loop, model router, Ollama/Claude clients, SDD engine
+│   └── planner-panel/   # Standalone planner widget
+└── extensions/
+    └── dai-ari/         # Ari AI extension
 ```
 
-## Stack
+---
 
-| Layer | Choice | Rationale |
-|---|---|---|
-| Shell | Code-OSS fork + Electron | Editor, terminal, file tree for free |
-| Vector DB | LanceDB (embedded TS) | 4MB idle, <10ms queries, Apache 2.0 |
-| AI | Ari via dai-skills MCP | Full tool-use agent, multi-model |
-| Chunking | tree-sitter + paragraph | AST-accurate code chunks |
-| Process mgmt | Custom ProcessManager | Restart-on-crash, health metrics |
-| Local models | Ollama | nomic-embed-text + llama3.2 |
+## Contributing
 
-## Quick Start
+PRs are welcome. Open an issue first for anything beyond small fixes.
 
 ```bash
-# Prerequisites
-# 1. Install Ollama: https://ollama.ai
-# 2. Pull models
-ollama pull nomic-embed-text
-ollama pull llama3.2:3b
-
-# Install and build
-npm install
-npm run build:core
-
-# Dev mode (Code-OSS fork required — see docs/fork-setup.md)
-npm run dev
+npm run lint              # ESLint
+npm test                  # unit tests (ts-jest)
+npm run integration-test  # SQLite integration test
+npm run dev               # hot-reload dev mode
 ```
 
-## SDD Spec
-
-This repo is governed by the **all-dai-sdd** protocol. Every task is spec'd, gated, and validated before shipping.
-
-- **Datasphere:** https://dataspheres.ai/app/dai-desktop
-- **Board:** https://dataspheres.ai/app/dai-desktop/planner  
-- **Dashboard:** https://dataspheres.ai/pages/dai-desktop/dai-desktop-dashboard
-
-### Validation Gates
-
-| Gate | Description | Status |
-|---|---|---|
-| VA-001 | Editor baseline — VS Code parity | ⏳ Pending |
-| VA-002 | Ari agent quality — 8/10 HumanEval tasks | ⏳ Pending |
-| VA-003 | Vector search Recall@3 ≥ 0.80 | ⏳ Pending |
-| VA-004 | Workflow E2E — blog + diagram + tasks in <3min | ⏳ Pending |
-| VA-005 | Local model parity — offline mode | ⏳ Pending |
-| VA-006 | Process manager — Ollama + MCP lifecycle | ⏳ Pending |
+---
 
 ## License
 
-MIT for all dai-desktop original code. Code-OSS base retains its MIT license.
-Ari/dai-skills: see [dai-skills license](https://github.com/geekdreamzz/ari-dai-skills).
+MIT — see [LICENSE](./LICENSE).
+
+This client is open source. The platform it connects to — [Dataspheres AI](https://dataspheres.ai) — is a commercial product. Building on top of Dataspheres AI requires an account.

@@ -9,3 +9,10 @@ out/
 packages/*/dist/
 packages/*/node_modules/
 ~/.dai-desktop/
+release/
+
+# Compiled test outputs (ts-jest artifacts — not source)
+packages/*/__tests__/**/*.js
+packages/*/__tests__/**/*.js.map
+packages/*/__tests__/**/*.d.ts
+packages/*/__tests__/**/*.d.ts.map

@@ -348,7 +348,7 @@ function WelcomeState({ onQuickAction }: { onQuickAction: (a: QuickAction) => vo
         transition={{ duration: 2.6, repeat: Infinity, ease: 'easeInOut' }}
       />
       <h1 style={welcomeHeading}>What are you building?</h1>
-      <p style={welcomeSub}>Ari runs locally — your code never leaves this machine.</p>
+      <p style={welcomeSub}>Ari by Dataspheres AI — your code never leaves this machine.</p>
       <div style={quickActionsRow}>
         {QUICK_ACTIONS.map((action) => (
           <motion.button
