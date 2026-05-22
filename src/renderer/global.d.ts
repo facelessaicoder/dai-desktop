@@ -71,6 +71,8 @@ export interface DaiAPI {
   settings: {
     get: (key: string) => Promise<unknown>;
     set: (key: string, value: unknown) => Promise<{ ok: boolean }>;
+    pickModelFile: () => Promise<{ canceled?: boolean; filePath?: string }>;
+    reloadModel: () => Promise<{ ok?: boolean; error?: string }>;
   };
   cloud: {
     listDataspheres: () => Promise<{ ok?: boolean; data?: CloudDatasphere[]; error?: string }>;

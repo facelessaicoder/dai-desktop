@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, session } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -48,6 +48,25 @@ function writeSettings(settings: Record<string, unknown>): void {
   const p = settingsPath();
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, JSON.stringify(settings, null, 2), 'utf-8');
+}
+
+function encryptApiKey(value: string): string {
+  if (value && safeStorage.isEncryptionAvailable()) {
+    return 'enc:' + safeStorage.encryptString(value).toString('base64');
+  }
+  return value;
+}
+
+function decryptApiKey(stored: unknown): string {
+  if (typeof stored !== 'string' || !stored) return '';
+  if (stored.startsWith('enc:')) {
+    try {
+      return safeStorage.decryptString(Buffer.from(stored.slice(4), 'base64'));
+    } catch {
+      return '';
+    }
+  }
+  return stored;
 }
 
 // ── Runtime singletons ────────────────────────────────────────────────────────
@@ -397,12 +416,17 @@ ipcMain.handle('hardware:info', () => {
 // ── IPC: settings ─────────────────────────────────────────────────────────────
 ipcMain.handle('settings:get', (_event, key: string) => {
   const settings = readSettings();
+  if (key === 'anthropic_api_key') return decryptApiKey(settings[key]) || null;
   return settings[key] ?? null;
 });
 
 ipcMain.handle('settings:set', (_event, { key, value }: { key: string; value: unknown }) => {
   const settings = readSettings();
-  settings[key] = value;
+  if (key === 'anthropic_api_key' && typeof value === 'string') {
+    settings[key] = encryptApiKey(value);
+  } else {
+    settings[key] = value;
+  }
   writeSettings(settings);
 
   if (key === 'modelPath' && llm) {
@@ -424,6 +448,38 @@ ipcMain.handle('settings:set', (_event, { key, value }: { key: string; value: un
   }
 
   return { ok: true };
+});
+
+// ── IPC: settings:pick-model-file ─────────────────────────────────────────────
+ipcMain.handle('settings:pick-model-file', async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win ?? BrowserWindow.getAllWindows()[0], {
+    title: 'Select GGUF Model File',
+    filters: [{ name: 'GGUF Models', extensions: ['gguf'] }],
+    properties: ['openFile'],
+  });
+  if (result.canceled || !result.filePaths.length) return { canceled: true };
+  return { filePath: result.filePaths[0] };
+});
+
+// ── IPC: settings:reload-model ────────────────────────────────────────────────
+ipcMain.handle('settings:reload-model', async () => {
+  if (llm) {
+    llm.unload();
+    llm = null;
+    agentLoop = null;
+  }
+  const settings = readSettings();
+  const modelPath = settings['modelPath'] as string | undefined;
+  if (!modelPath || !fs.existsSync(modelPath)) {
+    return { error: `Model file not found: ${modelPath ?? '(no path set)'}` };
+  }
+  try {
+    await initAgent(modelPath);
+    return { ok: true };
+  } catch (err) {
+    return { error: String(err) };
+  }
 });
 
 // ── IPC: cloud ────────────────────────────────────────────────────────────────

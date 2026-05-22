@@ -30,6 +30,8 @@ export interface DaiAPI {
   settings: {
     get: (key: string) => Promise<unknown>;
     set: (key: string, value: unknown) => Promise<{ ok: boolean }>;
+    pickModelFile: () => Promise<{ canceled?: boolean; filePath?: string }>;
+    reloadModel: () => Promise<{ ok?: boolean; error?: string }>;
   };
   cloud: {
     listDataspheres: () => Promise<{ ok?: boolean; data?: unknown; error?: string }>;
@@ -92,6 +94,8 @@ const daiAPI: DaiAPI = {
   settings: {
     get:  (key)         => ipcRenderer.invoke('settings:get', key),
     set:  (key, value)  => ipcRenderer.invoke('settings:set', { key, value }),
+    pickModelFile: ()   => ipcRenderer.invoke('settings:pick-model-file'),
+    reloadModel:   ()   => ipcRenderer.invoke('settings:reload-model'),
   },
 
   cloud: {
