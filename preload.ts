@@ -5,6 +5,11 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface OllamaStatus {
+  available: boolean;
+  models: string[];
+}
+
 export interface DaiAPI {
   chat: {
     send: (message: string, history: ChatMessage[]) => Promise<{ ok?: boolean; error?: boolean; message?: string }>;
@@ -12,6 +17,9 @@ export interface DaiAPI {
     onToolUse:    (cb: (data: unknown) => void)   => () => void;
     onToolResult: (cb: (data: unknown) => void)   => () => void;
     onDone:       (cb: (data: unknown) => void)   => () => void;
+  };
+  model: {
+    onOllamaStatus: (cb: (status: OllamaStatus) => void) => () => void;
   };
   sdd: {
     dispatch: (type: string, payload?: unknown) => Promise<{ ok?: boolean; data?: unknown; error?: string }>;
@@ -35,6 +43,14 @@ export interface DaiAPI {
 }
 
 const daiAPI: DaiAPI = {
+  model: {
+    onOllamaStatus: (cb) => {
+      const handler = (_: Electron.IpcRendererEvent, status: OllamaStatus) => cb(status);
+      ipcRenderer.on('ollama:status', handler);
+      return () => ipcRenderer.removeListener('ollama:status', handler);
+    },
+  },
+
   chat: {
     send: (message, history) =>
       ipcRenderer.invoke('agent:chat', { message, history }),

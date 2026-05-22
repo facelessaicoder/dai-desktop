@@ -53,31 +53,84 @@ function writeSettings(settings: Record<string, unknown>): void {
 // ── Runtime singletons ────────────────────────────────────────────────────────
 let agentLoop: InstanceType<typeof AgentLoop> | null = null;
 let llm: InstanceType<typeof LocalLLM> | null = null;
+let router: InstanceType<typeof ModelRouter> | null = null;
 let sddEngine: InstanceType<typeof SddEngine> | null = null;
 let sddStore: InstanceType<typeof SddStore> | null = null;
 let cloudService: InstanceType<typeof DatasphereService> | null = null;
 
 async function initAgent(modelPath: string): Promise<void> {
-  if (llm?.isLoaded) return; // already loaded
+  if (llm?.isLoaded) return;
 
   const hw = HardwareDetect.detect();
-  const config = { modelPath, temperature: 0.7 };
-  llm = new LocalLLM(config, hw);
-
   const settings = readSettings();
+  llm = new LocalLLM({ modelPath, temperature: 0.7 }, hw);
+
   const dbPath = path.join(app.getPath('userData'), 'vector.db');
   const vectorStore = new VectorStore(dbPath);
   await vectorStore.init();
   const embedder = new EmbeddingPipeline(llm);
   const tools = ToolRegistry.createDefaultTools(vectorStore, embedder);
-  const router = new ModelRouter({
+
+  router = new ModelRouter({
     modelPath,
     modelName: path.basename(modelPath),
     dataspheres_api_key: settings['dataspheres_api_key'] as string | undefined,
+    anthropic_api_key:   settings['anthropic_api_key']   as string | undefined,
   });
 
   await llm.load();
   agentLoop = new AgentLoop(llm, tools, router);
+}
+
+function ensureRouter(): InstanceType<typeof ModelRouter> {
+  if (!router) {
+    const settings = readSettings();
+    router = new ModelRouter({
+      modelPath:          (settings['modelPath']          as string | undefined) ?? '',
+      modelName:          'Unloaded',
+      dataspheres_api_key: settings['dataspheres_api_key'] as string | undefined,
+      anthropic_api_key:  settings['anthropic_api_key']   as string | undefined,
+    });
+  }
+  return router;
+}
+
+// ── Ollama health poller ──────────────────────────────────────────────────────
+let ollamaPollerTimer: ReturnType<typeof setInterval> | null = null;
+
+function startOllamaPoller(): void {
+  if (ollamaPollerTimer) return;
+
+  async function poll(): Promise<void> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch('http://localhost:11434/api/tags', { signal: controller.signal });
+      clearTimeout(timer);
+
+      let available = false;
+      let models: string[] = [];
+
+      if (res.ok) {
+        const data = await res.json() as { models: Array<{ name: string }> };
+        models = (data.models ?? []).map((m) => m.name);
+        available = true;
+      }
+
+      if (router) router.setOllamaStatus(available, models);
+      BrowserWindow.getAllWindows().forEach((w) =>
+        w.webContents.send('ollama:status', { available, models }),
+      );
+    } catch {
+      if (router) router.setOllamaStatus(false, []);
+      BrowserWindow.getAllWindows().forEach((w) =>
+        w.webContents.send('ollama:status', { available: false, models: [] }),
+      );
+    }
+  }
+
+  void poll();
+  ollamaPollerTimer = setInterval(poll, 5000);
 }
 
 function initSdd(): void {
@@ -149,6 +202,8 @@ app.whenReady().then(() => {
     if (cloudApiKey) {
       initCloud(cloudApiKey);
     }
+    ensureRouter();
+    startOllamaPoller();
   } catch (err) {
     console.error('[main] Failed to load dai-core:', err);
   }
@@ -169,25 +224,33 @@ app.on('window-all-closed', () => {
 ipcMain.handle('agent:chat', async (event, { message, history }) => {
   const settings = readSettings();
   const modelPath = (settings['modelPath'] as string | undefined) ?? process.env.LOCAL_MODEL_PATH;
+  const hasOllama = ensureRouter().ollamaAvailable;
+  const hasClaudeKey = !!(settings['anthropic_api_key'] as string | undefined);
 
-  if (!modelPath) {
+  if (modelPath && fs.existsSync(modelPath)) {
+    try {
+      await initAgent(modelPath);
+    } catch (err) {
+      return { error: true, message: `Failed to load model: ${String(err)}` };
+    }
+  } else if (!hasOllama && !hasClaudeKey) {
     return {
       error: true,
-      message: 'No local model configured. Set the model path in Settings → Model Path.',
+      message: 'No AI backend available. Load a local model, start Ollama, or add a Claude API key in Settings.',
     };
-  }
-
-  if (!fs.existsSync(modelPath)) {
-    return {
-      error: true,
-      message: `Model file not found at: ${modelPath}. Update the path in Settings.`,
-    };
-  }
-
-  try {
-    await initAgent(modelPath);
-  } catch (err) {
-    return { error: true, message: `Failed to load model: ${String(err)}` };
+  } else {
+    const r = ensureRouter();
+    r.update({
+      anthropic_api_key: settings['anthropic_api_key'] as string | undefined,
+    });
+    if (!agentLoop) {
+      const tools = ToolRegistry.createDefaultTools(
+        new VectorStore(path.join(app.getPath('userData'), 'vector.db')),
+        null as unknown as InstanceType<typeof EmbeddingPipeline>,
+      );
+      llm = new LocalLLM({ modelPath: '', temperature: 0.7 }, HardwareDetect.detect());
+      agentLoop = new AgentLoop(llm, tools, r);
+    }
   }
 
   if (!agentLoop) {
@@ -342,14 +405,16 @@ ipcMain.handle('settings:set', (_event, { key, value }: { key: string; value: un
   settings[key] = value;
   writeSettings(settings);
 
-  // If model path changed, unload current model so next chat reloads
   if (key === 'modelPath' && llm) {
     llm.unload();
     llm = null;
     agentLoop = null;
   }
 
-  // If API key changed, re-init cloud service
+  if (key === 'anthropic_api_key') {
+    ensureRouter().update({ anthropic_api_key: value as string | undefined });
+  }
+
   if ((key === 'cloudApiKey' || key === 'dataspheres_api_key') && value) {
     try {
       initCloud(value as string);

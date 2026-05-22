@@ -51,14 +51,58 @@ function nextId() { return `msg-${++msgCounter}`; }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+type BackendIndicator = 'local' | 'ollama' | 'claude' | 'none';
+
+function deriveBackend(
+  ollamaAvailable: boolean,
+  hasAnthropicKey: boolean,
+  hasModelPath: boolean,
+): BackendIndicator {
+  if (ollamaAvailable)   return 'ollama';
+  if (hasAnthropicKey)   return 'claude';
+  if (hasModelPath)      return 'local';
+  return 'none';
+}
+
+const BACKEND_COLOR: Record<BackendIndicator, string> = {
+  local:  '#22c55e',
+  ollama: '#eab308',
+  claude: '#3b82f6',
+  none:   '#ef4444',
+};
+
+const BACKEND_LABEL: Record<BackendIndicator, string> = {
+  local:  'Local',
+  ollama: 'Ollama',
+  claude: 'Claude',
+  none:   'No backend',
+};
+
 export function ChatPanel() {
-  const [messages, setMessages]     = useState<Message[]>([]);
-  const [input, setInput]           = useState('');
-  const [streaming, setStreaming]   = useState(false);
-  const listRef                     = useRef<HTMLDivElement>(null);
-  const textareaRef                 = useRef<HTMLTextAreaElement>(null);
-  const cleanupRef                  = useRef<(() => void)[]>([]);
-  const currentMsgIdRef             = useRef<string | null>(null);
+  const [messages, setMessages]         = useState<Message[]>([]);
+  const [input, setInput]               = useState('');
+  const [streaming, setStreaming]       = useState(false);
+  const [ollamaAvail, setOllamaAvail]   = useState(false);
+  const [hasAnthropicKey, setHasAnthropicKey] = useState(false);
+  const [hasModelPath, setHasModelPath] = useState(false);
+  const listRef                         = useRef<HTMLDivElement>(null);
+  const textareaRef                     = useRef<HTMLTextAreaElement>(null);
+  const cleanupRef                      = useRef<(() => void)[]>([]);
+  const currentMsgIdRef                 = useRef<string | null>(null);
+
+  const backend = deriveBackend(ollamaAvail, hasAnthropicKey, hasModelPath);
+
+  // Subscribe to Ollama status and fetch initial settings
+  useEffect(() => {
+    const removeOllama = window.dai.model.onOllamaStatus(({ available }) => {
+      setOllamaAvail(available);
+    });
+
+    void window.dai.settings.get('anthropic_api_key').then((v) => setHasAnthropicKey(!!v));
+    void window.dai.settings.get('modelPath').then((v) => setHasModelPath(!!v));
+
+    return removeOllama;
+  }, []);
 
   // Auto-scroll to bottom whenever messages update
   useEffect(() => {
@@ -196,7 +240,10 @@ export function ChatPanel() {
         <span style={{ fontSize: font.small, color: color.textDim, fontWeight: font.medium, letterSpacing: '0.06em' }}>
           ARI CHAT
         </span>
-        {streaming && <ThinkingIndicator />}
+        <div style={{ display: 'flex', alignItems: 'center', gap: space[3] }}>
+          <BackendBadge backend={backend} />
+          {streaming && <ThinkingIndicator />}
+        </div>
       </div>
 
       {/* Message list */}
@@ -247,6 +294,35 @@ export function ChatPanel() {
         </div>
         <p style={inputHint}>Enter to send · Shift+Enter for newline</p>
       </div>
+    </div>
+  );
+}
+
+// ── Backend badge ─────────────────────────────────────────────────────────────
+
+function BackendBadge({ backend }: { backend: BackendIndicator }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: space[1] }}>
+      <motion.div
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: '50%',
+          background: BACKEND_COLOR[backend],
+          flexShrink: 0,
+        }}
+        animate={backend !== 'none' ? {
+          boxShadow: [
+            `0 0 4px ${BACKEND_COLOR[backend]}80`,
+            `0 0 10px ${BACKEND_COLOR[backend]}80`,
+            `0 0 4px ${BACKEND_COLOR[backend]}80`,
+          ],
+        } : {}}
+        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      <span style={{ fontSize: font.micro, color: color.textMuted, letterSpacing: '0.04em' }}>
+        {BACKEND_LABEL[backend]}
+      </span>
     </div>
   );
 }

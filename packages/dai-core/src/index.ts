@@ -3,10 +3,12 @@ export { AgentLoop }                           from './agent/loop';
 export { ToolRegistry }                        from './agent/tools';
 export { ModelRouter }                         from './agent/router';
 export { LocalLLM }                            from './agent/llm';
+export { OllamaClient }                        from './agent/ollama';
+export { ClaudeAPIClient }                     from './agent/claude';
 export { HardwareDetect }                      from './agent/hardware';
 export type { HardwareInfo, AccelerationType } from './agent/hardware';
 export type { LLMConfig, ChatMessage }         from './agent/llm';
-export type { LocalModelConfig }               from './agent/router';
+export type { LocalModelConfig, BackendType }  from './agent/router';
 export type { AgentEvent, AgentLoopOptions }   from './agent/loop';
 
 // Vector

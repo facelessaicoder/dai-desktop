@@ -46,7 +46,15 @@ export interface CloudPlanMode {
 
 // ── DaiAPI ────────────────────────────────────────────────────────────────────
 
+export interface OllamaStatus {
+  available: boolean;
+  models: string[];
+}
+
 export interface DaiAPI {
+  model: {
+    onOllamaStatus: (cb: (status: OllamaStatus) => void) => () => void;
+  };
   chat: {
     send: (message: string, history: ChatMessage[]) => Promise<{ ok?: boolean; error?: boolean; message?: string }>;
     onToken:      (cb: (token: string) => void)  => () => void;

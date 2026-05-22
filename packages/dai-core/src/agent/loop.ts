@@ -1,6 +1,8 @@
 import { LocalLLM, ChatMessage } from './llm';
 import { ToolRegistry } from './tools';
 import { ModelRouter } from './router';
+import { OllamaClient } from './ollama';
+import { ClaudeAPIClient } from './claude';
 
 export type AgentEventType = 'text' | 'tool_use' | 'tool_result' | 'done' | 'error';
 
@@ -21,11 +23,15 @@ export class AgentLoop {
   private llm: LocalLLM;
   private tools: ToolRegistry;
   private router: ModelRouter;
+  private ollama: OllamaClient;
+  private claudeClient: ClaudeAPIClient;
 
   constructor(llm: LocalLLM, tools: ToolRegistry, router: ModelRouter) {
     this.llm = llm;
     this.tools = tools;
     this.router = router;
+    this.ollama = new OllamaClient(router.ollamaBaseUrl);
+    this.claudeClient = new ClaudeAPIClient(() => router.anthropic_key);
   }
 
   async *run(
@@ -33,8 +39,13 @@ export class AgentLoop {
     history: ChatMessage[] = [],
     options: AgentLoopOptions = {},
   ): AsyncGenerator<AgentEvent> {
-    if (!this.llm.isLoaded) {
-      yield { type: 'error', data: 'Local model not loaded. Select a model in Settings.' };
+    const backend = this.router.getBackend(this.llm.isLoaded);
+
+    if (backend === 'local' && !this.llm.isLoaded) {
+      yield {
+        type: 'error',
+        data: 'No model available. Load a local GGUF, start Ollama, or set a Claude API key in Settings.',
+      };
       return;
     }
 
@@ -52,25 +63,26 @@ export class AgentLoop {
       iterations++;
 
       let fullResponse = '';
-      for await (const chunk of this.llm.chat(messages, { systemPrompt: sysPrompt })) {
-        fullResponse += chunk;
-        yield { type: 'text', data: chunk };
+      try {
+        for await (const chunk of this._stream(messages, { systemPrompt: sysPrompt })) {
+          fullResponse += chunk;
+          yield { type: 'text', data: chunk };
+        }
+      } catch (err) {
+        yield { type: 'error', data: String(err) };
+        return;
       }
 
-      // Check if the model wants to call a tool
       const toolCall = this._parseToolCall(fullResponse);
       if (!toolCall) {
         yield { type: 'done', data: null };
         return;
       }
 
-      // Execute tool
       yield { type: 'tool_use', data: { name: toolCall.tool, input: toolCall.args } };
       try {
         const result = await this.tools.execute(toolCall.tool, toolCall.args ?? {});
         yield { type: 'tool_result', data: { name: toolCall.tool, result } };
-
-        // Feed result back into conversation and continue loop
         messages.push({ role: 'assistant', content: fullResponse });
         messages.push({
           role: 'user',
@@ -87,6 +99,25 @@ export class AgentLoop {
     }
 
     yield { type: 'done', data: { reason: 'max_iterations_reached' } };
+  }
+
+  private async *_stream(
+    messages: ChatMessage[],
+    options: { systemPrompt?: string },
+  ): AsyncGenerator<string> {
+    const backend = this.router.getBackend(this.llm.isLoaded);
+    switch (backend) {
+      case 'ollama': {
+        const model = this.router.ollamaModels[0];
+        yield* this.ollama.chat(messages, { ...options, model });
+        break;
+      }
+      case 'claude':
+        yield* this.claudeClient.chat(messages, options);
+        break;
+      default:
+        yield* this.llm.chat(messages, options);
+    }
   }
 
   private _buildSystemPrompt(override?: string): string {
