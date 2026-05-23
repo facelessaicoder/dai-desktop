@@ -26,21 +26,19 @@ interface SidebarProps {
 export function Sidebar({ active, onNavigate }: SidebarProps) {
   return (
     <nav style={sidebarStyle}>
-      {/* Dataspheres AI logo mark */}
+      {/* Dataspheres AI logo mark — real squircle from assets/icon.png
+          (served via src/renderer/public/icon.png symlink). */}
       <div style={logoSlot} title="Dataspheres AI">
-        <motion.div
-          animate={{ filter: [`drop-shadow(0 0 4px ${color.accent})`, `drop-shadow(0 0 10px ${color.accent})`, `drop-shadow(0 0 4px ${color.accent})`] }}
+        <motion.img
+          src="./icon.png"
+          alt="Dataspheres AI"
+          width={32}
+          height={32}
+          draggable={false}
+          style={{ borderRadius: 6, display: 'block' }}
+          animate={{ filter: [`drop-shadow(0 0 4px ${color.accentDim})`, `drop-shadow(0 0 10px ${color.accentDim})`, `drop-shadow(0 0 4px ${color.accentDim})`] }}
           transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
-        >
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            {/* Outer orbit ring */}
-            <ellipse cx="14" cy="14" rx="12" ry="5" stroke={color.accent} strokeWidth="1.2" strokeOpacity="0.5" transform="rotate(-30 14 14)" />
-            {/* Inner sphere */}
-            <circle cx="14" cy="14" r="5.5" fill={color.accent} fillOpacity="0.15" stroke={color.accent} strokeWidth="1.4" />
-            {/* Core dot */}
-            <circle cx="14" cy="14" r="2" fill={color.accent} />
-          </svg>
-        </motion.div>
+        />
       </div>
 
       {/* Nav items */}

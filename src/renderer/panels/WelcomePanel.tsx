@@ -69,17 +69,20 @@ export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
   return (
     <div style={shell}>
       <div style={inner}>
-        {/* Logo mark */}
+        {/* Logo mark — real squircle icon */}
         <motion.div
           style={logoRing}
           animate={{ boxShadow: [`0 0 24px ${color.accentDim}`, `0 0 48px ${color.accentDim}`, `0 0 24px ${color.accentDim}`] }}
           transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
         >
-          <svg width="48" height="48" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <ellipse cx="14" cy="14" rx="12" ry="5" stroke={color.accent} strokeWidth="1.2" strokeOpacity="0.5" transform="rotate(-30 14 14)" />
-            <circle cx="14" cy="14" r="5.5" fill={color.accent} fillOpacity="0.15" stroke={color.accent} strokeWidth="1.4" />
-            <circle cx="14" cy="14" r="2" fill={color.accent} />
-          </svg>
+          <img
+            src="./icon.png"
+            alt="Dataspheres AI"
+            width={72}
+            height={72}
+            draggable={false}
+            style={{ borderRadius: 16, display: 'block' }}
+          />
         </motion.div>
 
         <h1 style={title}>Welcome to Dataspheres AI</h1>
@@ -147,12 +150,11 @@ const inner: React.CSSProperties = {
 const logoRing: React.CSSProperties = {
   width: 96,
   height: 96,
-  borderRadius: '50%',
+  borderRadius: 24,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
   background: 'transparent',
-  border: `1px solid ${color.border}`,
   marginBottom: space[2],
 };
 
