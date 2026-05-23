@@ -1,11 +1,65 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, safeStorage, session } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { autoUpdater } from 'electron-updater';
 
 // ── Branding ─────────────────────────────────────────────────────────────────
 // Override Electron's default "Electron" name in the menu bar, About panel, and
 // userData path. Must be called BEFORE app.whenReady() / any app.* path call.
 app.setName('Dataspheres AI');
+
+// ── Custom URL scheme ────────────────────────────────────────────────────────
+// Registers `dataspheres://` so the OS hands clicks on those links to this
+// app. Used by the future OAuth / magic-link auth flow:
+//   1. App opens https://dataspheres.ai/auth/desktop?return=dataspheres://auth
+//   2. User signs in via browser
+//   3. Site redirects to dataspheres://auth?token=...
+//   4. OS launches (or focuses) this app with the URL
+//   5. We capture the token and pass it to the renderer
+//
+// On macOS the redirect arrives via `open-url`. On Windows/Linux it arrives
+// as the last argv on relaunch — we use `second-instance` to forward it
+// to the running window.
+const PROTOCOL = 'dataspheres';
+if (process.defaultApp) {
+  // Dev: argv has node + script, the URL is process.argv[2]
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient(PROTOCOL);
+}
+
+// Forward incoming URLs to the renderer once a window exists.
+let pendingDeepLink: string | null = null;
+function deliverDeepLink(url: string): void {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('deep-link', url);
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  } else {
+    // No window yet — stash until createWindow's ready-to-show fires
+    pendingDeepLink = url;
+  }
+}
+
+// macOS — `open-url` fires when the OS hands a dataspheres:// URL to us
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  deliverDeepLink(url);
+});
+
+// Windows/Linux — the URL comes as argv on second-instance launch
+const singleInstanceLock = app.requestSingleInstanceLock();
+if (!singleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const url = argv.find((a) => a.startsWith(`${PROTOCOL}://`));
+    if (url) deliverDeepLink(url);
+  });
+}
 
 
 
@@ -16,6 +70,59 @@ app.setName('Dataspheres AI');
 const ICON_PNG = path.join(__dirname, '..', 'assets', 'icon.png');
 const ICON_JPG = path.join(__dirname, '..', 'assets', 'icon.jpg');
 const ICON_PATH = fs.existsSync(ICON_PNG) ? ICON_PNG : ICON_JPG;
+
+// ── Auto-update ──────────────────────────────────────────────────────────────
+// electron-updater checks GitHub Releases for a newer version, downloads it
+// in the background, then prompts the user (via IPC → renderer toast) to
+// restart and install. Configured in package.json under "build.publish".
+//
+// Behaviour summary:
+//   1. Silent check on startup (skipped in dev)
+//   2. If a newer version is available: notify renderer
+//   3. Download in background, again notify when ready
+//   4. User clicks "Restart to update" → autoUpdater.quitAndInstall()
+//
+// Set DAI_DISABLE_AUTO_UPDATE=1 to skip the check (useful for QA builds).
+function configureAutoUpdater(getMainWindow: () => BrowserWindow | null): void {
+  if (process.env.NODE_ENV === 'development' || process.env.DAI_DISABLE_AUTO_UPDATE === '1') {
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  const send = (channel: string, payload?: unknown) => {
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+  };
+
+  autoUpdater.on('checking-for-update', () => send('update:checking'));
+  autoUpdater.on('update-available', (info) =>
+    send('update:available', { version: info.version, releaseNotes: info.releaseNotes }),
+  );
+  autoUpdater.on('update-not-available', () => send('update:none'));
+  autoUpdater.on('download-progress', (p) =>
+    send('update:progress', { percent: p.percent, transferred: p.transferred, total: p.total }),
+  );
+  autoUpdater.on('update-downloaded', (info) =>
+    send('update:downloaded', { version: info.version, releaseNotes: info.releaseNotes }),
+  );
+  autoUpdater.on('error', (err) => {
+    console.warn('[autoUpdater]', err.message);
+    send('update:error', { message: err.message });
+  });
+
+  // Run shortly after launch so the renderer has time to attach listeners.
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.warn('[autoUpdater] checkForUpdates failed:', err);
+    });
+  }, 3_000);
+}
+
+ipcMain.handle('update:install-now', () => {
+  autoUpdater.quitAndInstall();
+});
 
 // ── Lazy-import dai-core to avoid loading node-llama-cpp until needed ─────────
 // These are resolved at runtime from the compiled package output.
@@ -180,7 +287,7 @@ function initCloud(apiKey: string): void {
 }
 
 // ── Window factory ─────────────────────────────────────────────────────────────
-function createWindow(): BrowserWindow {
+function createWindow(): BrowserWindow | null {
   const isDev = process.env.NODE_ENV === 'development';
 
   const win = new BrowserWindow({
@@ -230,7 +337,14 @@ function createWindow(): BrowserWindow {
     win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   }
 
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    win.show();
+    // Deliver any deep-link that arrived before the window was ready
+    if (pendingDeepLink) {
+      win.webContents.send('deep-link', pendingDeepLink);
+      pendingDeepLink = null;
+    }
+  });
 
   return win;
 }
@@ -273,7 +387,14 @@ app.whenReady().then(() => {
     console.error('[main] Failed to load dai-core:', err);
   }
 
-  createWindow();
+  const firstWindow = createWindow();
+
+  // Wire auto-update — looks at GitHub Releases (see build.publish in package.json)
+  configureAutoUpdater(() =>
+    firstWindow && !firstWindow.isDestroyed()
+      ? firstWindow
+      : (BrowserWindow.getAllWindows()[0] ?? null),
+  );
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

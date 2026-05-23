@@ -18,6 +18,7 @@
     "@types/node": "^22.19.19",
     "apache-arrow": "^21.1.0",
     "better-sqlite3": "^12.10.0",
+    "electron-updater": "^6.8.3",
     "framer-motion": "^11.0.0",
     "lucide-react": "^0.395.0",
     "node-llama-cpp": "^3.0.0",
@@ -62,6 +63,20 @@
   "build": {
     "appId": "ai.dataspheres.dai-desktop",
     "productName": "Dataspheres AI",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "facelessaicoder",
+        "repo": "dai-desktop",
+        "releaseType": "release"
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Dataspheres AI",
+        "schemes": ["dataspheres"]
+      }
+    ],
     "copyright": "Copyright © 2026 facelessaicoder",
     "directories": {
       "output": "release"

@@ -42,6 +42,20 @@ export interface DaiAPI {
     listPlanModes: (dsId: string) => Promise<{ ok?: boolean; data?: unknown; error?: string }>;
     quickCapture: (text: string, type: 'page' | 'task', opts?: Record<string, unknown>) => Promise<{ ok?: boolean; data?: unknown; error?: string }>;
   };
+  updater: {
+    /** Fires when an update is available. Returns an unsubscribe fn. */
+    onAvailable: (cb: (info: { version: string; releaseNotes?: string }) => void) => () => void;
+    /** Fires when the downloaded update is ready to install. */
+    onDownloaded: (cb: (info: { version: string; releaseNotes?: string }) => void) => () => void;
+    /** Fires with download progress (0-100). */
+    onProgress: (cb: (p: { percent: number; transferred: number; total: number }) => void) => () => void;
+    /** Restart the app and install the downloaded update. */
+    installNow: () => Promise<void>;
+  };
+  deepLink: {
+    /** Fires when the OS hands the app a `dataspheres://` URL. */
+    onUrl: (cb: (url: string) => void) => () => void;
+  };
 }
 
 const daiAPI: DaiAPI = {
@@ -106,6 +120,33 @@ const daiAPI: DaiAPI = {
     listTasks:       (dsId, planModeId) => ipcRenderer.invoke('cloud:list-tasks', { dsId, planModeId }),
     listPlanModes:   (dsId)       => ipcRenderer.invoke('cloud:list-plan-modes', dsId),
     quickCapture:    (text, type, opts) => ipcRenderer.invoke('cloud:quick-capture', { text, type, opts }),
+  },
+
+  updater: {
+    onAvailable: (cb) => {
+      const handler = (_: Electron.IpcRendererEvent, info: { version: string; releaseNotes?: string }) => cb(info);
+      ipcRenderer.on('update:available', handler);
+      return () => ipcRenderer.removeListener('update:available', handler);
+    },
+    onDownloaded: (cb) => {
+      const handler = (_: Electron.IpcRendererEvent, info: { version: string; releaseNotes?: string }) => cb(info);
+      ipcRenderer.on('update:downloaded', handler);
+      return () => ipcRenderer.removeListener('update:downloaded', handler);
+    },
+    onProgress: (cb) => {
+      const handler = (_: Electron.IpcRendererEvent, p: { percent: number; transferred: number; total: number }) => cb(p);
+      ipcRenderer.on('update:progress', handler);
+      return () => ipcRenderer.removeListener('update:progress', handler);
+    },
+    installNow: () => ipcRenderer.invoke('update:install-now'),
+  },
+
+  deepLink: {
+    onUrl: (cb) => {
+      const handler = (_: Electron.IpcRendererEvent, url: string) => cb(url);
+      ipcRenderer.on('deep-link', handler);
+      return () => ipcRenderer.removeListener('deep-link', handler);
+    },
   },
 };
 
