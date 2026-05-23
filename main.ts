@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, safeStorage, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, safeStorage, session, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { autoUpdater } from 'electron-updater';
@@ -7,6 +7,19 @@ import { autoUpdater } from 'electron-updater';
 // Override Electron's default "Electron" name in the menu bar, About panel, and
 // userData path. Must be called BEFORE app.whenReady() / any app.* path call.
 app.setName('Dataspheres AI');
+
+// ── Test isolation ───────────────────────────────────────────────────────────
+// Allow e2e tests to redirect userData (settings.json, sqlite, etc.) to a
+// temp dir per run, preventing test runs from clobbering the user's real
+// Application Support data. Honored only when set — has no effect in normal
+// app usage.
+if (process.env.ELECTRON_USER_DATA) {
+  try {
+    app.setPath('userData', process.env.ELECTRON_USER_DATA);
+  } catch (err) {
+    console.warn('[main] Could not override userData path:', err);
+  }
+}
 
 // ── Custom URL scheme ────────────────────────────────────────────────────────
 // Registers `dataspheres://` so the OS hands clicks on those links to this
@@ -122,6 +135,21 @@ function configureAutoUpdater(getMainWindow: () => BrowserWindow | null): void {
 
 ipcMain.handle('update:install-now', () => {
   autoUpdater.quitAndInstall();
+});
+
+// Open an external URL in the user's default browser. Used by the welcome
+// screen to start the OAuth flow. Restricted to https:// and http:// — never
+// opens file://, custom schemes, or non-web URLs (defense against tricks
+// from compromised renderer code).
+ipcMain.handle('shell:open-external', async (_event, url: string) => {
+  if (typeof url !== 'string') return { error: 'url must be a string' };
+  if (!/^https?:\/\//i.test(url)) return { error: 'only http(s) URLs may be opened' };
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (err) {
+    return { error: String(err) };
+  }
 });
 
 // ── Lazy-import dai-core to avoid loading node-llama-cpp until needed ─────────

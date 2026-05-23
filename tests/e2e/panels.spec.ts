@@ -35,11 +35,14 @@ test('clicking "Planner" switches the visible panel', async () => {
   expect(active).toBe('planner');
 });
 
-test('clicking "Cloud" shows the connect prompt (no API key)', async () => {
+test('clicking "Cloud" switches to the cloud panel', async () => {
   await r.window.locator(navButton('Cloud')).click();
   await r.window.waitForTimeout(400);
-  // CloudPanel renders "Connect to Dataspheres AI" when no API key is set
-  await expect(r.window.locator('text=Connect to Dataspheres AI')).toBeVisible({ timeout: 5_000 });
+  const active = await r.window.evaluate(() => localStorage.getItem('dai:active-panel'));
+  expect(active).toBe('cloud');
+  // (The no-API-key "Connect to Dataspheres AI" prompt is now part of the
+  // welcome screen, gated separately. CloudPanel itself behaves the same
+  // as the other panels once auth is set — the fixture seeds a fake token.)
 });
 
 test('clicking "Settings" switches to settings panel', async () => {

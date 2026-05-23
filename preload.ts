@@ -56,6 +56,10 @@ export interface DaiAPI {
     /** Fires when the OS hands the app a `dataspheres://` URL. */
     onUrl: (cb: (url: string) => void) => () => void;
   };
+  shell: {
+    /** Open an http(s) URL in the user's default browser. */
+    openExternal: (url: string) => Promise<{ ok?: boolean; error?: string }>;
+  };
 }
 
 const daiAPI: DaiAPI = {
@@ -147,6 +151,10 @@ const daiAPI: DaiAPI = {
       ipcRenderer.on('deep-link', handler);
       return () => ipcRenderer.removeListener('deep-link', handler);
     },
+  },
+
+  shell: {
+    openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   },
 };
 
