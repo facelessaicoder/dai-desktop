@@ -343,7 +343,13 @@ function createWindow(): BrowserWindow | null {
 
   if (isDev) {
     win.loadURL(process.env.RENDERER_DEV_URL ?? 'http://localhost:5173');
-    win.webContents.openDevTools({ mode: 'detach' });
+    // DevTools is OFF by default in dev — was popping a second window on every
+    // launch which is more annoying than useful. Press Cmd+Opt+I (Mac) /
+    // Ctrl+Shift+I (Win/Linux) when you actually want it, or set
+    // DAI_DEVTOOLS=1 to bring back auto-open behavior.
+    if (process.env.DAI_DEVTOOLS === '1') {
+      win.webContents.openDevTools({ mode: 'detach' });
+    }
 
     // Forward renderer console messages to a tail-able log file so debugging
     // doesn't depend on CDP (which has been flaky for me locally).
