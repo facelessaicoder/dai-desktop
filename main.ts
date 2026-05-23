@@ -7,6 +7,8 @@ import * as fs from 'fs';
 // userData path. Must be called BEFORE app.whenReady() / any app.* path call.
 app.setName('Dataspheres AI');
 
+
+
 // Icon resolution — resolved relative to the compiled main.js in /dist.
 // Prefer the squircle PNG (transparent corners, proper macOS shape); fall back
 // to the source JPG so the app still has an icon on machines where the
@@ -207,6 +209,23 @@ function createWindow(): BrowserWindow {
   if (isDev) {
     win.loadURL(process.env.RENDERER_DEV_URL ?? 'http://localhost:5173');
     win.webContents.openDevTools({ mode: 'detach' });
+
+    // Forward renderer console messages to a tail-able log file so debugging
+    // doesn't depend on CDP (which has been flaky for me locally).
+    try {
+      const logPath = path.join(app.getPath('userData'), 'renderer-console.log');
+      fs.writeFileSync(logPath, ''); // truncate per launch
+      win.webContents.on('console-message', (_event, level, message, line, source) => {
+        const stamp = new Date().toISOString();
+        fs.appendFileSync(
+          logPath,
+          `[${stamp}] [L${level}] ${message}  (${source}:${line})\n`,
+        );
+      });
+      console.log(`[main] Renderer console → ${logPath}`);
+    } catch (err) {
+      console.warn('[main] Failed to set up renderer console log:', err);
+    }
   } else {
     win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   }
