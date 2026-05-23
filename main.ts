@@ -1,6 +1,19 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, safeStorage, session } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+
+// ── Branding ─────────────────────────────────────────────────────────────────
+// Override Electron's default "Electron" name in the menu bar, About panel, and
+// userData path. Must be called BEFORE app.whenReady() / any app.* path call.
+app.setName('Dataspheres AI');
+
+// Icon resolution — resolved relative to the compiled main.js in /dist.
+// Prefer the squircle PNG (transparent corners, proper macOS shape); fall back
+// to the source JPG so the app still has an icon on machines where the
+// generated PNG isn't present.
+const ICON_PNG = path.join(__dirname, '..', 'assets', 'icon.png');
+const ICON_JPG = path.join(__dirname, '..', 'assets', 'icon.jpg');
+const ICON_PATH = fs.existsSync(ICON_PNG) ? ICON_PNG : ICON_JPG;
 
 // ── Lazy-import dai-core to avoid loading node-llama-cpp until needed ─────────
 // These are resolved at runtime from the compiled package output.
@@ -173,10 +186,15 @@ function createWindow(): BrowserWindow {
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    title: 'Dataspheres AI',
+    icon: ICON_PATH,
     frame: process.platform !== 'darwin',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
+    // Let macOS position traffic lights at their default location — overriding
+    // them caused collisions with sidebar content.
     vibrancy: process.platform === 'darwin' ? 'under-window' : undefined,
-    backgroundColor: '#08090E',
+    // Deep ocean blue — keep in sync with color.base in packages/dai-ui/src/tokens.ts
+    backgroundColor: '#0A1622',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -200,6 +218,15 @@ function createWindow(): BrowserWindow {
 
 // ── App lifecycle ──────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  // macOS dock icon — must be set after `app` is ready
+  if (process.platform === 'darwin' && app.dock && fs.existsSync(ICON_PATH)) {
+    try {
+      app.dock.setIcon(nativeImage.createFromPath(ICON_PATH));
+    } catch (err) {
+      console.warn('[main] Failed to set dock icon:', err);
+    }
+  }
+
   // Allow local file loads inside iframes/webviews for the planner panel
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({

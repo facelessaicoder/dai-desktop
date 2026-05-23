@@ -1,5 +1,6 @@
 {
   "name": "dai-desktop",
+  "productName": "Dataspheres AI",
   "version": "0.1.0",
   "description": "Local-first AI workspace — standalone Electron app with Ari embedded",
   "license": "MIT",
@@ -35,10 +36,13 @@
     "package": "npm run build:core && npm run build:renderer && npm run build:main && electron-builder",
     "test": "npm run test --workspaces",
     "integration-test": "node --experimental-sqlite --no-warnings=ExperimentalWarning integration_test.mjs",
+    "test:e2e": "npm run build:main && npm run build:renderer && playwright test",
+    "test:e2e:headed": "HEADED=1 npm run test:e2e",
     "lint": "eslint packages/*/src src/renderer --ext .ts,.tsx"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",
+    "@playwright/test": "^1.60.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
@@ -48,12 +52,13 @@
     "electron": "^31.7.7",
     "electron-builder": "^24.0.0",
     "eslint": "^9.0.0",
+    "playwright": "^1.60.0",
     "typescript": "^5.4.0",
     "vite": "^5.0.0"
   },
   "build": {
     "appId": "ai.dataspheres.dai-desktop",
-    "productName": "dai-desktop",
+    "productName": "Dataspheres AI",
     "copyright": "Copyright © 2026 facelessaicoder",
     "directories": {
       "output": "release"
@@ -73,15 +78,15 @@
     ],
     "mac": {
       "target": "dmg",
-      "icon": "assets/icons/icon.icns"
+      "icon": "assets/icon.icns"
     },
     "linux": {
       "target": "AppImage",
-      "icon": "assets/icons/icon.png"
+      "icon": "assets/icon.png"
     },
     "win": {
       "target": "nsis",
-      "icon": "assets/icons/icon.ico"
+      "icon": "assets/icon.png"
     }
   }
 }

@@ -102,10 +102,12 @@ const logoSlot: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   width: '100%',
-  height: 52,
+  // Tall enough to clear macOS traffic lights (~28px tall, starting near y=18)
+  // without the logo crashing into them.
+  height: process.platform === 'darwin' ? 72 : 52,
   flexShrink: 0,
-  // macOS inset titlebar overlap
-  paddingTop: process.platform === 'darwin' ? 16 : 0,
+  // Push the logo below the traffic-light strip on macOS hiddenInset windows.
+  paddingTop: process.platform === 'darwin' ? 38 : 0,
 };
 
 

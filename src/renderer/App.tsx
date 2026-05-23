@@ -25,6 +25,14 @@ export function App() {
 
   return (
     <div style={appShell}>
+      {/*
+        Top drag strip — makes the window movable on macOS where `titleBarStyle:
+        'hiddenInset'` is used in main.ts. Without this region, there's no
+        title bar to grab. Buttons/inputs that overlap this strip should set
+        `WebkitAppRegion: 'no-drag'` to remain clickable.
+      */}
+      <div style={dragStrip} />
+
       <Sidebar active={activePanel} onNavigate={navigate} />
       <main style={mainArea}>
         <AnimatePresence mode="wait">
@@ -46,6 +54,20 @@ export function App() {
     </div>
   );
 }
+
+const dragStrip: React.CSSProperties = {
+  position: 'fixed',
+  top: 0,
+  // Skip past the 56px-wide Sidebar so its nav buttons stay clickable.
+  // (Anything inside this strip that needs clicks should set
+  // WebkitAppRegion: 'no-drag' on itself.)
+  left: 56,
+  right: 0,
+  height: 28,
+  zIndex: 9999,
+  // @ts-expect-error — Electron-specific CSS property
+  WebkitAppRegion: 'drag',
+};
 
 const appShell: React.CSSProperties = {
   display: 'flex',
