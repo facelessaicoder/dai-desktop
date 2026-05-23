@@ -69,21 +69,19 @@ export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
   return (
     <div style={shell}>
       <div style={inner}>
-        {/* Logo mark — real squircle icon */}
-        <motion.div
-          style={logoRing}
-          animate={{ boxShadow: [`0 0 24px ${color.accentDim}`, `0 0 48px ${color.accentDim}`, `0 0 24px ${color.accentDim}`] }}
+        {/* Logo mark — real squircle icon, no wrapper. The icon already
+            has its own shape; the previous logoRing div added a dark
+            rounded-square background that looked tacked on. */}
+        <motion.img
+          src="./icon.png"
+          alt="Dataspheres AI"
+          width={120}
+          height={120}
+          draggable={false}
+          style={{ display: 'block', marginBottom: space[2] }}
+          animate={{ filter: [`drop-shadow(0 0 16px ${color.accentDim})`, `drop-shadow(0 0 32px ${color.accentDim})`, `drop-shadow(0 0 16px ${color.accentDim})`] }}
           transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-        >
-          <img
-            src="./icon.png"
-            alt="Dataspheres AI"
-            width={72}
-            height={72}
-            draggable={false}
-            style={{ borderRadius: 16, display: 'block' }}
-          />
-        </motion.div>
+        />
 
         <h1 style={title}>Welcome to Dataspheres AI</h1>
         <p style={subtitle}>
@@ -107,8 +105,8 @@ export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
           I have a developer API key
         </button>
 
-        <p style={footnote}>
-          Don't have an account?{' '}
+        <div style={footnote}>
+          <div>Don't have an account?</div>
           <a
             href="#"
             style={footLink}
@@ -119,7 +117,7 @@ export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
           >
             Sign up — free tier, no credit card required
           </a>
-        </p>
+        </div>
       </div>
     </div>
   );
@@ -145,17 +143,6 @@ const inner: React.CSSProperties = {
   gap: space[4],
   maxWidth: 420,
   padding: space[6],
-};
-
-const logoRing: React.CSSProperties = {
-  width: 96,
-  height: 96,
-  borderRadius: 24,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  background: 'transparent',
-  marginBottom: space[2],
 };
 
 const title: React.CSSProperties = {
@@ -211,11 +198,17 @@ const errorBox: React.CSSProperties = {
 const footnote: React.CSSProperties = {
   fontSize: font.small,
   color: color.textMuted,
-  margin: 0,
   marginTop: space[4],
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: space[1],
 };
 
+// Same color as surrounding footnote text — visually one paragraph,
+// click target is the bottom line. Underline-on-hover for affordance.
 const footLink: React.CSSProperties = {
-  color: color.accent,
-  textDecoration: 'none',
+  color: color.textMuted,
+  textDecoration: 'underline',
+  cursor: 'pointer',
 };
