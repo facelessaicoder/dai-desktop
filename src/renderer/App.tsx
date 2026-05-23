@@ -25,16 +25,17 @@ export function App() {
 
   return (
     <div style={appShell}>
-      {/*
-        Top drag strip — makes the window movable on macOS where `titleBarStyle:
-        'hiddenInset'` is used in main.ts. Without this region, there's no
-        title bar to grab. Buttons/inputs that overlap this strip should set
-        `WebkitAppRegion: 'no-drag'` to remain clickable.
-      */}
-      <div style={dragStrip} />
-
       <Sidebar active={activePanel} onNavigate={navigate} />
       <main style={mainArea}>
+        {/*
+          Top drag strip inside the main area — gives the user a place to grab
+          the window without overlapping the sidebar (which has its own drag
+          region but is only 56px wide). Kept inside <main> so it doesn't sit
+          above the Sidebar's stacking context — that combination triggered a
+          GPU-compositing repeat-paint bug in Electron dev mode.
+        */}
+        <div style={topDragBar} aria-hidden />
+
         <AnimatePresence mode="wait">
           <motion.div
             key={activePanel}
@@ -55,16 +56,12 @@ export function App() {
   );
 }
 
-const dragStrip: React.CSSProperties = {
-  position: 'fixed',
-  top: 0,
-  // Skip past the 56px-wide Sidebar so its nav buttons stay clickable.
-  // (Anything inside this strip that needs clicks should set
-  // WebkitAppRegion: 'no-drag' on itself.)
-  left: 56,
-  right: 0,
+// Normal-flow drag handle at the top of the main panel. NOT position:fixed —
+// fixed positioning combined with the Sidebar's app-region created a Chromium
+// repaint loop that tiled the entire sidebar across the window in dev mode.
+const topDragBar: React.CSSProperties = {
   height: 28,
-  zIndex: 9999,
+  flexShrink: 0,
   // @ts-expect-error — Electron-specific CSS property
   WebkitAppRegion: 'drag',
 };

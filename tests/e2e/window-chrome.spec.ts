@@ -39,22 +39,25 @@ test('macOS uses hiddenInset title bar', async () => {
   expect(style.isFullScreenable).toBe(true);
 });
 
-test('drag strip is present in the rendered DOM', async () => {
-  // The drag region is a fixed div at the top of App.tsx with
-  // WebkitAppRegion: 'drag'. Verify it renders and has the expected style.
+test('drag bar exists at the top of the main panel', async () => {
+  // The drag region is the first child of <main>, normal-flow, with
+  // WebkitAppRegion:'drag'. Verify it renders at the top, ~28px tall.
+  // (Previously this was a position:fixed overlay; that approach combined
+  // with the Sidebar's app-region triggered a Chromium repaint ghost in
+  // dev mode, so it now lives inside <main>.)
   const dragInfo = await r.window.evaluate(() => {
-    const els = Array.from(document.querySelectorAll('div')) as HTMLDivElement[];
-    const dragEl = els.find((el) => {
-      const cs = window.getComputedStyle(el);
-      return cs.position === 'fixed' && cs.top === '0px' &&
-             (cs as unknown as { webkitAppRegion?: string }).webkitAppRegion === 'drag';
-    });
+    const dragEl = document.querySelector('main > div[aria-hidden]') as HTMLDivElement | null;
     if (!dragEl) return null;
     const rect = dragEl.getBoundingClientRect();
-    return { height: rect.height, top: rect.top, found: true };
+    const cs = window.getComputedStyle(dragEl);
+    return {
+      height: rect.height,
+      top: rect.top,
+      webkitAppRegion: (cs as unknown as { webkitAppRegion?: string }).webkitAppRegion,
+    };
   });
   expect(dragInfo).not.toBeNull();
-  expect(dragInfo!.top).toBe(0);
+  expect(dragInfo!.webkitAppRegion).toBe('drag');
   expect(dragInfo!.height).toBeGreaterThanOrEqual(24);
 });
 

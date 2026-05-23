@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { MessageSquare, Layout, Cloud, Settings } from 'lucide-react';
-import { color, font, space, spring } from '@dai-desktop/ui';
+import { color, space, spring } from '@dai-desktop/ui';
 
 export type PanelId = 'chat' | 'planner' | 'cloud' | 'settings';
 
@@ -93,8 +93,11 @@ const sidebarStyle: React.CSSProperties = {
   borderRight: `1px solid ${color.border}`,
   paddingBottom: space[4],
   userSelect: 'none',
-  // macOS drag region — only the sidebar acts as window drag handle
-  WebkitAppRegion: 'drag' as React.CSSProperties['WebkitAppRegion'],
+  // NOTE: previously set WebkitAppRegion:'drag' here, but combining a
+  // drag region with the orb's infinite filter:drop-shadow animation caused
+  // Chromium to skip layer invalidation in Electron — sidebar ghost-trails
+  // would tile across the window during animation. The dedicated topDragBar
+  // in App.tsx handles dragging; the sidebar itself stays a normal element.
 };
 
 const logoSlot: React.CSSProperties = {
@@ -119,8 +122,7 @@ const navList: React.CSSProperties = {
   flex: 1,
   width: '100%',
   paddingTop: space[2],
-  // buttons should not be drag targets
-  WebkitAppRegion: 'no-drag' as React.CSSProperties['WebkitAppRegion'],
+  // no WebkitAppRegion needed — sidebarStyle is no longer a drag region.
 };
 
 const navBtn: React.CSSProperties = {

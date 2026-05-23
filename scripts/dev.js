@@ -96,11 +96,21 @@ process.on('SIGTERM', () => shutdown(0));
   }
   console.log(`[dev] Vite ready at ${URL}. Launching Electron...`);
 
-  electronProc = spawn(String(electron), ['.', '--inspect=5858'], {
-    cwd: ROOT,
-    env,
-    stdio: 'inherit',
-  });
+  electronProc = spawn(
+    String(electron),
+    [
+      '.',
+      '--inspect=5858',
+      // Chrome DevTools Protocol for the renderer process — lets e2e tools
+      // (Playwright) connect to a live dev session for debugging.
+      '--remote-debugging-port=9222',
+    ],
+    {
+      cwd: ROOT,
+      env,
+      stdio: 'inherit',
+    },
+  );
   electronProc.on('exit', (code) => {
     console.log(`[dev] Electron exited (code ${code})`);
     shutdown(code ?? 0);
