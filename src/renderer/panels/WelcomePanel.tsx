@@ -92,11 +92,13 @@ export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
       return;
     }
     console.log(`[welcome] sign-in success (isSessionToken=${res.isSessionToken === true})`);
-    if (res.isSessionToken) {
-      // No fatal — but warn so user knows why cloud features might be flaky
-      console.warn('[welcome] using NextAuth session token (no API key returned). Some cloud features may not work until the server-side desktop-key endpoint is wired up.');
-    }
     await window.dai.settings.set('cloudApiKey', res.token);
+    // Persist isSessionToken flag so other panels (and the cloud error
+    // translator in main) can tell whether the user has a real API key.
+    await window.dai.settings.set('cloudApiKeyIsSessionToken', res.isSessionToken === true);
+    if (res.isSessionToken) {
+      console.warn('[welcome] using NextAuth session token (no API key returned). CloudPanel will prompt for a real key.');
+    }
     onSignedIn();
   };
 
@@ -106,7 +108,7 @@ export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
     setBusy('google');
     const res = await window.dai.auth.loginGoogle();
     if (res.error) {
-      setError({ message: `Couldn't open browser: ${res.error}` });
+      setError({ message: 'Could not open your browser to sign in with Google. Try again.' });
       setBusy(null);
     }
     // Else: wait for deep-link callback (handled in the useEffect above).

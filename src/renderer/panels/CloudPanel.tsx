@@ -13,6 +13,7 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'error';
 
 export function CloudPanel() {
   const [hasApiKey, setHasApiKey]           = useState<boolean | null>(null);
+  const [isSessionToken, setIsSessionToken] = useState<boolean>(false);
   const [dataspheres, setDataspheres]       = useState<CloudDatasphere[]>([]);
   const [active, setActive]                 = useState<CloudDatasphere | null>(null);
   const [dsDropOpen, setDsDropOpen]         = useState(false);
@@ -35,16 +36,21 @@ export function CloudPanel() {
     (async () => {
       const cloudKey = await window.dai.settings.get('cloudApiKey') as string | null;
       const legacyKey = await window.dai.settings.get('dataspheres_api_key') as string | null;
+      const isSession = await window.dai.settings.get('cloudApiKeyIsSessionToken');
       setHasApiKey(Boolean(cloudKey || legacyKey));
+      setIsSessionToken(isSession === true);
     })();
   }, []);
 
   // ── Load dataspheres once API key is confirmed ─────────────────────────────
+  // (Skipped when we know the stored token is a NextAuth session JWT, not a
+  // real dsk_ API key — calling listDataspheres would just produce the
+  // SyntaxError "<!DOCTYPE..." that confuses users.)
 
   useEffect(() => {
-    if (!hasApiKey) return;
+    if (!hasApiKey || isSessionToken) return;
     loadDataspheres();
-  }, [hasApiKey]);
+  }, [hasApiKey, isSessionToken]);
 
   // ── Close dropdown on outside click ───────────────────────────────────────
 
@@ -152,6 +158,29 @@ export function CloudPanel() {
           </motion.div>
           <h2 style={{ fontSize: font.display, color: color.textPrimary, fontWeight: font.light }}>Connect to Dataspheres AI</h2>
           <p style={subText}>Enter your Dataspheres AI API key in Settings to sync tasks, pages, and research.</p>
+          <SettingsLink />
+        </div>
+      </PanelShell>
+    );
+  }
+
+  if (isSessionToken) {
+    // User signed in via email/password and we got a NextAuth session JWT
+    // instead of a `dsk_...` key. The cloud API doesn't accept session JWTs
+    // as Bearer tokens, so attempting to list dataspheres returns the HTML
+    // login page and our JSON parser throws a SyntaxError. Show a clear
+    // "API key needed" state instead.
+    return (
+      <PanelShell>
+        <div style={centeredContent}>
+          <motion.div style={iconRing} animate={{ boxShadow: [`0 0 12px ${color.accentDim}`, `0 0 28px ${color.accentDim}`, `0 0 12px ${color.accentDim}`] }} transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}>
+            <Cloud size={28} strokeWidth={1.5} style={{ color: color.accent }} />
+          </motion.div>
+          <h2 style={{ fontSize: font.display, color: color.textPrimary, fontWeight: font.light }}>One more step</h2>
+          <p style={subText}>
+            You’re signed in, but your workspaces need a developer API key to load. Grab one at
+            dataspheres.ai/app/developers and paste it in Settings.
+          </p>
           <SettingsLink />
         </div>
       </PanelShell>

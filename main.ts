@@ -194,21 +194,23 @@ function categorizeFetchError(err: unknown): { code: string; message: string } {
   const e = err instanceof Error ? err : new Error(String(err));
   const m = e.message || '';
   if (e.name === 'AbortError' || /aborted|timeout/i.test(m)) {
-    return { code: 'timeout', message: `Sign-in took longer than ${AUTH_TIMEOUT_MS / 1000}s. Server may be slow or unreachable.` };
+    return { code: 'timeout', message: `Sign-in took longer than ${AUTH_TIMEOUT_MS / 1000} seconds. The server may be slow or unreachable.` };
   }
   if (/ENOTFOUND|getaddrinfo/i.test(m)) {
-    return { code: 'dns', message: 'Could not resolve the server hostname. Check the base URL in Settings, or your network/VPN.' };
+    return { code: 'dns', message: 'Could not find the Dataspheres server. Check your internet connection or VPN.' };
   }
   if (/ECONNREFUSED/i.test(m)) {
-    return { code: 'refused', message: 'Server refused the connection. The Dataspheres host may be down.' };
+    return { code: 'refused', message: 'The Dataspheres server refused the connection. It may be down.' };
   }
   if (/ECONNRESET/i.test(m)) {
-    return { code: 'reset', message: 'Server closed the connection mid-request. Try again — if it keeps happening, the host may be misconfigured.' };
+    return { code: 'reset', message: 'The connection was closed before the server responded. Please try again.' };
   }
   if (/certificate|SELF_SIGNED|TLS|ssl/i.test(m)) {
-    return { code: 'tls', message: 'SSL/TLS error reaching the server. The certificate may be invalid or expired.' };
+    return { code: 'tls', message: 'A secure-connection error occurred. The server certificate may be invalid or expired.' };
   }
-  return { code: 'network', message: `Could not reach Dataspheres AI. (${m})` };
+  // Clean fallback — never expose raw err.message to the UI; just code in the log.
+  console.warn(`[auth] uncategorized fetch error: ${m}`);
+  return { code: 'network', message: 'Could not reach Dataspheres AI. Check your internet connection and try again.' };
 }
 
 function categorizeHttpError(status: number, body: Record<string, unknown>): string {
@@ -906,13 +908,46 @@ ipcMain.handle('settings:reload-model', async () => {
 
 // ── IPC: cloud ────────────────────────────────────────────────────────────────
 
+/**
+ * Translate raw cloud-call errors into messages users can act on.
+ *
+ * The most common failure mode: user signed in with email+password, got a
+ * NextAuth session JWT, but the public API expects a `dsk_...` key. The API
+ * returns the HTML login page (302) instead of JSON, and our parser barfs
+ * `SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON`.
+ * Detect that flavor and surface a friendly "API key needed" message.
+ */
+function friendlyCloudError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  // HTML-instead-of-JSON: the API key is invalid or it's a session token
+  if (/<!DOCTYPE|Unexpected token '<'|is not valid JSON/i.test(msg)) {
+    const settings = readSettings();
+    if (settings['cloudApiKeyIsSessionToken']) {
+      return 'You signed in successfully, but cloud features need a `dsk_...` API key. Open Settings and paste a key from dataspheres.ai/app/developers.';
+    }
+    return 'Your sign-in seems to have expired or your API key is invalid. Sign out and back in, or paste a fresh key in Settings.';
+  }
+  if (/401|403|Unauthorized|Forbidden/i.test(msg)) {
+    return 'The Dataspheres server rejected your sign-in. Sign out and back in, or paste a fresh API key in Settings.';
+  }
+  if (/ENOTFOUND|getaddrinfo|ECONNREFUSED|ECONNRESET/i.test(msg)) {
+    return 'Could not reach Dataspheres AI. Check your internet connection.';
+  }
+  if (/timeout|aborted/i.test(msg)) {
+    return 'The Dataspheres server did not respond in time. Try again.';
+  }
+  // Last-resort fallback — never the raw stack trace, just a generic message.
+  console.warn('[cloud] uncategorized error:', msg);
+  return 'Something went wrong loading your workspaces. Please try again.';
+}
+
 ipcMain.handle('cloud:list-dataspheres', async () => {
-  if (!cloudService) return { error: 'Cloud service not initialized — set API key in Settings' };
+  if (!cloudService) return { error: 'Cloud service not initialized. Open Settings and add a Dataspheres API key.' };
   try {
     const data = await cloudService.listDataspheres();
     return { ok: true, data };
   } catch (err) {
-    return { error: String(err) };
+    return { error: friendlyCloudError(err) };
   }
 });
 
@@ -922,48 +957,48 @@ ipcMain.handle('cloud:get-active', async () => {
     const data = await cloudService.getActiveDatasphere();
     return { ok: true, data };
   } catch (err) {
-    return { error: String(err) };
+    return { error: friendlyCloudError(err) };
   }
 });
 
 ipcMain.handle('cloud:set-active', async (_event, uri: string) => {
-  if (!cloudService) return { error: 'Cloud service not initialized — set API key in Settings' };
+  if (!cloudService) return { error: 'Cloud service not initialized. Open Settings and add a Dataspheres API key.' };
   try {
     await cloudService.setActiveDatasphere(uri);
     const data = await cloudService.getActiveDatasphere();
     return { ok: true, data };
   } catch (err) {
-    return { error: String(err) };
+    return { error: friendlyCloudError(err) };
   }
 });
 
 ipcMain.handle('cloud:list-pages', async (_event, { uri, folder }: { uri: string; folder?: string }) => {
-  if (!cloudService) return { error: 'Cloud service not initialized — set API key in Settings' };
+  if (!cloudService) return { error: 'Cloud service not initialized. Open Settings and add a Dataspheres API key.' };
   try {
     const data = await cloudService.client.listPages(uri, { folder, limit: 50 });
     return { ok: true, data };
   } catch (err) {
-    return { error: String(err) };
+    return { error: friendlyCloudError(err) };
   }
 });
 
 ipcMain.handle('cloud:list-tasks', async (_event, { dsId, planModeId }: { dsId: string; planModeId?: string }) => {
-  if (!cloudService) return { error: 'Cloud service not initialized — set API key in Settings' };
+  if (!cloudService) return { error: 'Cloud service not initialized. Open Settings and add a Dataspheres API key.' };
   try {
     const data = await cloudService.client.listTasks(dsId, { planModeId, limit: 100 });
     return { ok: true, data };
   } catch (err) {
-    return { error: String(err) };
+    return { error: friendlyCloudError(err) };
   }
 });
 
 ipcMain.handle('cloud:list-plan-modes', async (_event, dsId: string) => {
-  if (!cloudService) return { error: 'Cloud service not initialized — set API key in Settings' };
+  if (!cloudService) return { error: 'Cloud service not initialized. Open Settings and add a Dataspheres API key.' };
   try {
     const data = await cloudService.client.listPlanModes(dsId);
     return { ok: true, data };
   } catch (err) {
-    return { error: String(err) };
+    return { error: friendlyCloudError(err) };
   }
 });
 
@@ -971,11 +1006,11 @@ ipcMain.handle('cloud:quick-capture', async (
   _event,
   { text, type, opts }: { text: string; type: 'page' | 'task'; opts?: Record<string, unknown> },
 ) => {
-  if (!cloudService) return { error: 'Cloud service not initialized — set API key in Settings' };
+  if (!cloudService) return { error: 'Cloud service not initialized. Open Settings and add a Dataspheres API key.' };
   try {
     const data = await cloudService.quickCapture(text, type, opts as Parameters<typeof cloudService.quickCapture>[2]);
     return { ok: true, data };
   } catch (err) {
-    return { error: String(err) };
+    return { error: friendlyCloudError(err) };
   }
 });
