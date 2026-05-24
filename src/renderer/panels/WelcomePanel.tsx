@@ -91,14 +91,8 @@ export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
       setBusy(null);
       return;
     }
-    console.log(`[welcome] sign-in success (isSessionToken=${res.isSessionToken === true})`);
+    console.log('[welcome] sign-in success — storing token');
     await window.dai.settings.set('cloudApiKey', res.token);
-    // Persist isSessionToken flag so other panels (and the cloud error
-    // translator in main) can tell whether the user has a real API key.
-    await window.dai.settings.set('cloudApiKeyIsSessionToken', res.isSessionToken === true);
-    if (res.isSessionToken) {
-      console.warn('[welcome] using NextAuth session token (no API key returned). CloudPanel will prompt for a real key.');
-    }
     onSignedIn();
   };
 

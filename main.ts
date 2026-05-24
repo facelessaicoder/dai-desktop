@@ -261,29 +261,23 @@ ipcMain.handle('auth:login-email', async (_event, payload: { email?: string; pas
       return { error: errMsg, status: res.status };
     }
 
-    const sessionToken =
+    // The JWT returned by /api/auth/login is accepted as a Bearer token by
+    // the Dataspheres public API. No exchange needed — store it as-is.
+    const token =
       (body.token as string) ||
       (body.sessionToken as string) ||
       (body.accessToken as string) ||
       (body.jwt as string);
 
-    if (!sessionToken) {
+    if (!token) {
       console.error('[auth] no token field in response; available keys:', Object.keys(body));
       return {
         error: 'Signed in, but the server didn’t return a token. The Dataspheres API may have changed — file an issue.',
       };
     }
 
-    // ── Exchange session token for an API key (best-effort) ──────────────
-    console.log('[auth] exchanging session token for API key…');
-    const apiKey = await exchangeSessionForApiKey(baseUrl, sessionToken);
-    if (apiKey) {
-      console.log('[auth] got API key, using that for cloud calls');
-      return { ok: true, token: apiKey, isSessionToken: false };
-    }
-
-    console.warn('[auth] no API key endpoint available; falling back to session token');
-    return { ok: true, token: sessionToken, isSessionToken: true };
+    console.log(`[auth] storing token (length=${token.length}); ready for cloud calls`);
+    return { ok: true, token };
   } catch (err) {
     clearTimeout(timer);
     const { code, message } = categorizeFetchError(err);
@@ -316,49 +310,6 @@ ipcMain.handle('auth:test-connection', async () => {
   }
 });
 
-/**
- * Best-effort: trade a NextAuth session JWT for a long-lived API key (`dsk_...`).
- * Tries several plausible endpoint shapes — none might exist yet, in which case
- * we return null and the caller falls back to the session token.
- */
-async function exchangeSessionForApiKey(baseUrl: string, sessionToken: string): Promise<string | null> {
-  const candidates = [
-    { url: `${baseUrl}/api/v1/auth/desktop-key`, method: 'POST' },
-    { url: `${baseUrl}/api/v1/auth/api-keys/desktop`, method: 'POST' },
-    { url: `${baseUrl}/api/v1/api-keys`, method: 'POST' },
-    { url: `${baseUrl}/api/v1/users/me/api-keys`, method: 'POST' },
-  ];
-  for (const c of candidates) {
-    try {
-      const res = await fetch(c.url, {
-        method: c.method,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${sessionToken}`,
-        },
-        body: JSON.stringify({ name: 'dai-desktop' }),
-      });
-      if (!res.ok) {
-        console.log(`[auth]   ${c.url} → HTTP ${res.status} (skip)`);
-        continue;
-      }
-      const body: Record<string, unknown> = await res.json().catch(() => ({}));
-      const key =
-        (body.apiKey as string) ||
-        (body.key as string) ||
-        (body.token as string) ||
-        (typeof body.value === 'string' ? body.value : '');
-      if (key && key.startsWith('dsk_')) {
-        console.log(`[auth]   ${c.url} → got API key`);
-        return key;
-      }
-      console.log(`[auth]   ${c.url} → 200 but no dsk_ key in response`);
-    } catch (err) {
-      console.log(`[auth]   ${c.url} → ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-  return null;
-}
 
 // ── Auth: Google OAuth ────────────────────────────────────────────────────────
 // Convenience helper — same as shell.openExternal but builds the URL with the
@@ -533,7 +484,12 @@ function initSdd(): void {
 }
 
 function initCloud(apiKey: string): void {
-  const client = new DatasphereClient({ apiKey });
+  // Pass the resolved base URL so the client doesn't fall back to
+  // its hard-coded production default. If the user signed in against
+  // dev.dataspheres.ai, the JWT is only valid there.
+  const baseUrl = dataspheresBaseUrl();
+  console.log(`[cloud] initializing client against ${baseUrl}`);
+  const client = new DatasphereClient({ apiKey, baseUrl });
   cloudService = new DatasphereService(client);
 }
 
@@ -919,13 +875,9 @@ ipcMain.handle('settings:reload-model', async () => {
  */
 function friendlyCloudError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
-  // HTML-instead-of-JSON: the API key is invalid or it's a session token
+  // HTML-instead-of-JSON → API rejected the token (likely expired/invalid)
   if (/<!DOCTYPE|Unexpected token '<'|is not valid JSON/i.test(msg)) {
-    const settings = readSettings();
-    if (settings['cloudApiKeyIsSessionToken']) {
-      return 'You signed in successfully, but cloud features need a `dsk_...` API key. Open Settings and paste a key from dataspheres.ai/app/developers.';
-    }
-    return 'Your sign-in seems to have expired or your API key is invalid. Sign out and back in, or paste a fresh key in Settings.';
+    return 'Your sign-in has expired or your API key is invalid. Sign out and back in.';
   }
   if (/401|403|Unauthorized|Forbidden/i.test(msg)) {
     return 'The Dataspheres server rejected your sign-in. Sign out and back in, or paste a fresh API key in Settings.';
