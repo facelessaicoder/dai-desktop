@@ -504,7 +504,19 @@ function createWindow(): BrowserWindow | null {
     minHeight: 600,
     title: 'Dataspheres AI',
     icon: ICON_PATH,
-    frame: process.platform !== 'darwin',
+    // Belt + suspenders for "window won't drag / won't resize" reports:
+    movable: true,
+    resizable: true,
+    maximizable: true,
+    minimizable: true,
+    closable: true,
+    fullscreenable: true,
+    // On macOS we want the standard `hiddenInset` look — system-drawn traffic
+    // lights, no visible title bar — which requires frame: true. Setting
+    // frame: false alongside hiddenInset puts the window in an "edge-only
+    // resize, no native chrome" mode that some users hit as a "stuck window"
+    // because the OS won't move it at all.
+    frame: true,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
     // Let macOS position traffic lights at their default location — overriding
     // them caused collisions with sidebar content.
