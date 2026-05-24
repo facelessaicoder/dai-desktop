@@ -64,13 +64,18 @@ export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
       return;
     }
     setBusy('email');
+    console.log('[welcome] signing in with email…');
     const res = await window.dai.auth.loginEmail(email.trim(), password);
     if (res.error || !res.token) {
+      console.warn('[welcome] sign-in failed:', res.error);
       setError(res.error || 'Sign-in failed.');
       setBusy(null);
       return;
     }
+    console.log(`[welcome] sign-in success (isSessionToken=${(res as { isSessionToken?: boolean }).isSessionToken === true})`);
     await window.dai.settings.set('cloudApiKey', res.token);
+    // Keep busy=true through the auth-state transition so the loading
+    // overlay stays visible until App.tsx unmounts WelcomePanel.
     onSignedIn();
   };
 
@@ -84,6 +89,42 @@ export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
     }
     // Else: wait for deep-link callback (handled in the useEffect above).
   };
+
+  // Full-screen loading overlay while a sign-in attempt is in flight.
+  // Sign-in can take several seconds (network + token exchange).
+  if (busy !== null) {
+    return (
+      <div style={shell}>
+        <div style={inner}>
+          <motion.img
+            src="./icon.png"
+            alt="Dataspheres AI"
+            width={96}
+            height={96}
+            draggable={false}
+            style={{ display: 'block', marginBottom: space[3] }}
+            animate={{
+              filter: [
+                `drop-shadow(0 0 16px ${color.accentDim})`,
+                `drop-shadow(0 0 40px ${color.accent})`,
+                `drop-shadow(0 0 16px ${color.accentDim})`,
+              ],
+              scale: [1, 1.05, 1],
+            }}
+            transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          <h2 style={loadingTitle}>
+            {busy === 'email' ? 'Signing you in…' : 'Waiting for browser…'}
+          </h2>
+          <p style={loadingSub}>
+            {busy === 'email'
+              ? 'Verifying your credentials with Dataspheres AI.'
+              : 'Finish signing in in your browser. We’ll bring you back here automatically.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={shell}>
@@ -337,4 +378,21 @@ const footLink: React.CSSProperties = {
   color: color.modeVibe,
   textDecoration: 'underline',
   cursor: 'pointer',
+};
+
+const loadingTitle: React.CSSProperties = {
+  fontSize: font.heading,
+  fontWeight: font.light,
+  color: color.textPrimary,
+  margin: 0,
+  marginBottom: space[2],
+};
+
+const loadingSub: React.CSSProperties = {
+  fontSize: font.body,
+  color: color.textDim,
+  lineHeight: 1.5,
+  margin: 0,
+  textAlign: 'center',
+  maxWidth: 320,
 };

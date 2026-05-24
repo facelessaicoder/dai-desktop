@@ -170,37 +170,116 @@ ipcMain.handle('auth:login-email', async (_event, payload: { email?: string; pas
   if (typeof email !== 'string' || !email.trim()) return { error: 'Email is required.' };
   if (typeof password !== 'string' || !password) return { error: 'Password is required.' };
 
-  const url = `${dataspheresBaseUrl()}/api/auth/login`;
+  const baseUrl = dataspheresBaseUrl();
+  const loginUrl = `${baseUrl}/api/auth/login`;
+  console.log(`[auth] POST ${loginUrl} (email=${email.trim()})`);
+  const t0 = Date.now();
+
   try {
-    const res = await fetch(url, {
+    const res = await fetch(loginUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim(), password }),
     });
+    console.log(`[auth] login response: HTTP ${res.status} in ${Date.now() - t0}ms`);
 
-    // Try to parse JSON either way — Dataspheres returns JSON on both
-    // success and failure paths.
-    let body: { token?: string; sessionToken?: string; accessToken?: string; error?: string; message?: string } = {};
-    try { body = await res.json(); } catch { /* non-JSON response, leave body empty */ }
-
-    if (!res.ok) {
-      return { error: body.error || body.message || `Sign-in failed (HTTP ${res.status}).` };
+    let body: Record<string, unknown> = {};
+    try {
+      body = await res.json();
+      // Don't log the full body (might contain the token) — log shape only.
+      console.log(`[auth] response keys: ${Object.keys(body).join(', ')}`);
+    } catch {
+      console.warn('[auth] response was not JSON');
     }
 
-    const token = body.token || body.sessionToken || body.accessToken;
-    if (!token) {
+    if (!res.ok) {
+      const errMsg = (body.error as string) || (body.message as string) || `Sign-in failed (HTTP ${res.status}).`;
+      console.warn(`[auth] login failed: ${errMsg}`);
+      return { error: errMsg };
+    }
+
+    // Dataspheres returns different shapes. Try common token field names.
+    const sessionToken =
+      (body.token as string) ||
+      (body.sessionToken as string) ||
+      (body.accessToken as string) ||
+      (body.jwt as string);
+
+    if (!sessionToken) {
+      console.error('[auth] no token field in response; available keys:', Object.keys(body));
       return {
-        error: 'Sign-in succeeded but no token returned. The Dataspheres API may have changed — file an issue.',
+        error: 'Sign-in succeeded but no token was returned. The Dataspheres API response shape may have changed.',
       };
     }
 
-    return { ok: true, token };
+    // ── Exchange session token for an API key ────────────────────────────
+    // /api/auth/login returns a NextAuth session JWT, but the Dataspheres
+    // public API (used by CloudPanel etc.) expects a `dsk_...` API key in
+    // the Authorization: Bearer header. Try to create/fetch an API key
+    // using the session. Falls back to using the session token directly
+    // if no API key endpoint exists yet — CloudPanel will at least show
+    // a clear "Invalid API key" error in that case instead of a blank page.
+    console.log('[auth] exchanging session token for API key…');
+    const apiKey = await exchangeSessionForApiKey(baseUrl, sessionToken);
+    if (apiKey) {
+      console.log('[auth] got API key, using that for cloud calls');
+      return { ok: true, token: apiKey, isSessionToken: false };
+    }
+
+    console.warn('[auth] no API key available; falling back to session token (may not work for cloud calls)');
+    return { ok: true, token: sessionToken, isSessionToken: true };
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[auth] login error: ${msg}`);
     return {
-      error: `Could not reach Dataspheres AI. Check your connection. (${err instanceof Error ? err.message : String(err)})`,
+      error: `Could not reach Dataspheres AI. Check your connection. (${msg})`,
     };
   }
 });
+
+/**
+ * Best-effort: trade a NextAuth session JWT for a long-lived API key (`dsk_...`).
+ * Tries several plausible endpoint shapes — none might exist yet, in which case
+ * we return null and the caller falls back to the session token.
+ */
+async function exchangeSessionForApiKey(baseUrl: string, sessionToken: string): Promise<string | null> {
+  const candidates = [
+    { url: `${baseUrl}/api/v1/auth/desktop-key`, method: 'POST' },
+    { url: `${baseUrl}/api/v1/auth/api-keys/desktop`, method: 'POST' },
+    { url: `${baseUrl}/api/v1/api-keys`, method: 'POST' },
+    { url: `${baseUrl}/api/v1/users/me/api-keys`, method: 'POST' },
+  ];
+  for (const c of candidates) {
+    try {
+      const res = await fetch(c.url, {
+        method: c.method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({ name: 'dai-desktop' }),
+      });
+      if (!res.ok) {
+        console.log(`[auth]   ${c.url} → HTTP ${res.status} (skip)`);
+        continue;
+      }
+      const body: Record<string, unknown> = await res.json().catch(() => ({}));
+      const key =
+        (body.apiKey as string) ||
+        (body.key as string) ||
+        (body.token as string) ||
+        (typeof body.value === 'string' ? body.value : '');
+      if (key && key.startsWith('dsk_')) {
+        console.log(`[auth]   ${c.url} → got API key`);
+        return key;
+      }
+      console.log(`[auth]   ${c.url} → 200 but no dsk_ key in response`);
+    } catch (err) {
+      console.log(`[auth]   ${c.url} → ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return null;
+}
 
 // ── Auth: Google OAuth ────────────────────────────────────────────────────────
 // Convenience helper — same as shell.openExternal but builds the URL with the
