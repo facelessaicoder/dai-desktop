@@ -62,9 +62,11 @@ export interface DaiAPI {
   };
   auth: {
     /** Sign in with email + password via /api/auth/login. Returns the session token. */
-    loginEmail: (email: string, password: string) => Promise<{ ok?: boolean; token?: string; error?: string }>;
+    loginEmail: (email: string, password: string) => Promise<{ ok?: boolean; token?: string; error?: string; isSessionToken?: boolean }>;
     /** Open Google OAuth in the user's default browser; token arrives via deepLink.onUrl. */
     loginGoogle: () => Promise<{ ok?: boolean; error?: string }>;
+    /** Which Dataspheres environment URL the app is currently pointed at. */
+    getBaseUrl: () => Promise<string>;
   };
 }
 
@@ -166,6 +168,7 @@ const daiAPI: DaiAPI = {
   auth: {
     loginEmail: (email, password) => ipcRenderer.invoke('auth:login-email', { email, password }),
     loginGoogle: () => ipcRenderer.invoke('auth:login-google'),
+    getBaseUrl: () => ipcRenderer.invoke('auth:get-base-url'),
   },
 };
 

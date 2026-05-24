@@ -29,6 +29,14 @@ export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState<null | 'email' | 'google'>(null);
   const [error, setError] = useState<string | null>(null);
+  const [baseUrl, setBaseUrl] = useState<string>('');
+
+  // Show the environment we're talking to (dev vs prod). Useful for
+  // "no network traffic" debugging — confirms whether the app is even
+  // pointed at the server you expect.
+  useEffect(() => {
+    window.dai.auth.getBaseUrl().then(setBaseUrl).catch(() => {});
+  }, []);
 
   // Listen for the deep-link return from the OAuth flow (Google path)
   useEffect(() => {
@@ -215,6 +223,12 @@ export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
             Sign up — free tier, no credit card required
           </a>
         </div>
+
+        {baseUrl && (
+          <div style={envBadge} title="Set DATASPHERES_BASE_URL or settings.dataspheres_base_url to change.">
+            connected to <span style={envHost}>{baseUrl.replace(/^https?:\/\//, '')}</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -395,4 +409,20 @@ const loadingSub: React.CSSProperties = {
   margin: 0,
   textAlign: 'center',
   maxWidth: 320,
+};
+
+// Tiny "connected to dev.dataspheres.ai" line at the bottom of the welcome
+// screen. Useful for telling at a glance which environment the app is
+// pointed at — critical for debugging "I logged in and nothing happened."
+const envBadge: React.CSSProperties = {
+  position: 'fixed',
+  bottom: 12,
+  right: 16,
+  fontSize: font.micro,
+  color: color.textMuted,
+  fontFamily: font.mono,
+};
+
+const envHost: React.CSSProperties = {
+  color: color.modeVibe,
 };

@@ -3,6 +3,13 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { autoUpdater } from 'electron-updater';
 
+// Suppress Electron's dev-mode CSP / insecure-resource warnings. They auto-
+// disappear in packaged builds; in dev they're noisy and known. Set BEFORE
+// any window is created.
+if (process.env.NODE_ENV === 'development') {
+  process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
+}
+
 // ── Branding ─────────────────────────────────────────────────────────────────
 // Override Electron's default "Electron" name in the menu bar, About panel, and
 // userData path. Must be called BEFORE app.whenReady() / any app.* path call.
@@ -161,9 +168,25 @@ ipcMain.handle('shell:open-external', async (_event, url: string) => {
 // falls back to production. We never send the password anywhere else and
 // the response body is parsed in-place — the renderer only sees the token
 // string, not the raw HTTP body.
+// Resolve order:
+//   1. process.env.DATASPHERES_BASE_URL  (set in shell / .env / launchctl)
+//   2. settings['dataspheres_base_url']  (set via Settings panel or
+//      IPC settings:set)
+//   3. dev default                        (so testing against staging is
+//      friction-free; flip to prod default once the server side is stable)
 function dataspheresBaseUrl(): string {
-  return process.env.DATASPHERES_BASE_URL || 'https://dataspheres.ai';
+  if (process.env.DATASPHERES_BASE_URL) return process.env.DATASPHERES_BASE_URL;
+  const s = readSettings();
+  if (typeof s['dataspheres_base_url'] === 'string' && s['dataspheres_base_url']) {
+    return s['dataspheres_base_url'] as string;
+  }
+  return 'https://dev.dataspheres.ai';
 }
+
+// Surface the URL to the renderer so the welcome screen can show
+// "connecting to dev.dataspheres.ai" — users (and us) need to know
+// which environment they're talking to.
+ipcMain.handle('auth:get-base-url', () => dataspheresBaseUrl());
 
 ipcMain.handle('auth:login-email', async (_event, payload: { email?: string; password?: string }) => {
   const { email, password } = payload ?? {};
