@@ -24,12 +24,20 @@ interface WelcomeProps {
   onUseDeveloperKey: () => void;
 }
 
+interface WelcomeError {
+  message: string;
+  /** When set, show "Test connection" affordance — these are connectivity/server errors */
+  isConnectivity?: boolean;
+}
+
 export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState<null | 'email' | 'google'>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<WelcomeError | null>(null);
   const [baseUrl, setBaseUrl] = useState<string>('');
+  const [testingConn, setTestingConn] = useState(false);
+  const [connResult, setConnResult] = useState<string | null>(null);
 
   // Show the environment we're talking to (dev vs prod). Useful for
   // "no network traffic" debugging — confirms whether the app is even
@@ -63,12 +71,13 @@ export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
   const signInWithEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setConnResult(null);
     if (!email.trim()) {
-      setError('Enter your email.');
+      setError({ message: 'Enter your email.' });
       return;
     }
     if (!password) {
-      setError('Enter your password.');
+      setError({ message: 'Enter your password.' });
       return;
     }
     setBusy('email');
@@ -76,26 +85,48 @@ export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
     const res = await window.dai.auth.loginEmail(email.trim(), password);
     if (res.error || !res.token) {
       console.warn('[welcome] sign-in failed:', res.error);
-      setError(res.error || 'Sign-in failed.');
+      // Connectivity-flavored failures get the "Test connection" affordance
+      const isConn = res.code === 'timeout' || res.code === 'dns' || res.code === 'refused' || res.code === 'reset' || res.code === 'tls' || res.code === 'network';
+      setError({ message: res.error || 'Sign-in failed.', isConnectivity: isConn });
       setBusy(null);
       return;
     }
-    console.log(`[welcome] sign-in success (isSessionToken=${(res as { isSessionToken?: boolean }).isSessionToken === true})`);
+    console.log(`[welcome] sign-in success (isSessionToken=${res.isSessionToken === true})`);
+    if (res.isSessionToken) {
+      // No fatal — but warn so user knows why cloud features might be flaky
+      console.warn('[welcome] using NextAuth session token (no API key returned). Some cloud features may not work until the server-side desktop-key endpoint is wired up.');
+    }
     await window.dai.settings.set('cloudApiKey', res.token);
-    // Keep busy=true through the auth-state transition so the loading
-    // overlay stays visible until App.tsx unmounts WelcomePanel.
     onSignedIn();
   };
 
   const signInWithGoogle = async () => {
     setError(null);
+    setConnResult(null);
     setBusy('google');
     const res = await window.dai.auth.loginGoogle();
     if (res.error) {
-      setError(`Couldn't open browser: ${res.error}`);
+      setError({ message: `Couldn't open browser: ${res.error}` });
       setBusy(null);
     }
     // Else: wait for deep-link callback (handled in the useEffect above).
+  };
+
+  const cancelSignIn = () => {
+    setBusy(null);
+    setError({ message: 'Sign-in cancelled.' });
+  };
+
+  const testConnection = async () => {
+    setTestingConn(true);
+    setConnResult(null);
+    const res = await window.dai.auth.testConnection();
+    setTestingConn(false);
+    if (res.ok) {
+      setConnResult(`✓ Reached ${baseUrl.replace(/^https?:\/\//, '')} in ${res.ms}ms.`);
+    } else {
+      setConnResult(`✗ ${res.message ?? `Unreachable (${res.code ?? 'unknown'})`}`);
+    }
   };
 
   // Full-screen loading overlay while a sign-in attempt is in flight.
@@ -126,9 +157,12 @@ export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
           </h2>
           <p style={loadingSub}>
             {busy === 'email'
-              ? 'Verifying your credentials with Dataspheres AI.'
+              ? `Verifying your credentials with ${baseUrl.replace(/^https?:\/\//, '') || 'Dataspheres AI'}.`
               : 'Finish signing in in your browser. We’ll bring you back here automatically.'}
           </p>
+          <button onClick={cancelSignIn} style={cancelLink}>
+            Cancel
+          </button>
         </div>
       </div>
     );
@@ -153,7 +187,21 @@ export function WelcomePanel({ onSignedIn, onUseDeveloperKey }: WelcomeProps) {
           Sign in to access your workspaces. Your code never leaves this machine.
         </p>
 
-        {error && <div style={errorBox} role="alert">{error}</div>}
+        {error && (
+          <div style={errorBox} role="alert">
+            <div>{error.message}</div>
+            {error.isConnectivity && (
+              <button
+                style={errorAction}
+                onClick={testConnection}
+                disabled={testingConn}
+              >
+                {testingConn ? 'Testing…' : 'Test connection'}
+              </button>
+            )}
+          </div>
+        )}
+        {connResult && <div style={connStatus} role="status">{connResult}</div>}
 
         <form style={form} onSubmit={signInWithEmail}>
           <input
@@ -409,6 +457,37 @@ const loadingSub: React.CSSProperties = {
   margin: 0,
   textAlign: 'center',
   maxWidth: 320,
+  marginBottom: space[4],
+};
+
+const cancelLink: React.CSSProperties = {
+  background: 'transparent',
+  border: 'none',
+  color: color.textDim,
+  fontSize: font.small,
+  cursor: 'pointer',
+  padding: space[2],
+  textDecoration: 'underline',
+};
+
+const errorAction: React.CSSProperties = {
+  marginTop: space[2],
+  padding: `${space[1]} ${space[3]}`,
+  background: 'transparent',
+  border: `1px solid ${color.danger}`,
+  borderRadius: 6,
+  color: color.textPrimary,
+  fontSize: font.small,
+  cursor: 'pointer',
+};
+
+const connStatus: React.CSSProperties = {
+  width: '100%',
+  padding: space[2],
+  fontSize: font.small,
+  color: color.textDim,
+  textAlign: 'left',
+  fontFamily: font.mono,
 };
 
 // Tiny "connected to dev.dataspheres.ai" line at the bottom of the welcome

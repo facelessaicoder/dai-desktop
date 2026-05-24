@@ -188,40 +188,77 @@ function dataspheresBaseUrl(): string {
 // which environment they're talking to.
 ipcMain.handle('auth:get-base-url', () => dataspheresBaseUrl());
 
+const AUTH_TIMEOUT_MS = 15_000;
+
+function categorizeFetchError(err: unknown): { code: string; message: string } {
+  const e = err instanceof Error ? err : new Error(String(err));
+  const m = e.message || '';
+  if (e.name === 'AbortError' || /aborted|timeout/i.test(m)) {
+    return { code: 'timeout', message: `Sign-in took longer than ${AUTH_TIMEOUT_MS / 1000}s. Server may be slow or unreachable.` };
+  }
+  if (/ENOTFOUND|getaddrinfo/i.test(m)) {
+    return { code: 'dns', message: 'Could not resolve the server hostname. Check the base URL in Settings, or your network/VPN.' };
+  }
+  if (/ECONNREFUSED/i.test(m)) {
+    return { code: 'refused', message: 'Server refused the connection. The Dataspheres host may be down.' };
+  }
+  if (/ECONNRESET/i.test(m)) {
+    return { code: 'reset', message: 'Server closed the connection mid-request. Try again — if it keeps happening, the host may be misconfigured.' };
+  }
+  if (/certificate|SELF_SIGNED|TLS|ssl/i.test(m)) {
+    return { code: 'tls', message: 'SSL/TLS error reaching the server. The certificate may be invalid or expired.' };
+  }
+  return { code: 'network', message: `Could not reach Dataspheres AI. (${m})` };
+}
+
+function categorizeHttpError(status: number, body: Record<string, unknown>): string {
+  const serverMsg = (body.error as string) || (body.message as string);
+  if (status === 400 || status === 422) return serverMsg || 'The server rejected the request. Check your email format.';
+  if (status === 401 || status === 403) return serverMsg || 'Invalid credentials. Double-check your email and password.';
+  if (status === 404) return 'The sign-in endpoint was not found at this URL. Check the base URL in Settings.';
+  if (status === 429) return 'Too many sign-in attempts. Wait a minute and try again.';
+  if (status >= 500) return serverMsg || `Server error (${status}). The Dataspheres team has been notified.`;
+  return serverMsg || `Sign-in failed (HTTP ${status}).`;
+}
+
 ipcMain.handle('auth:login-email', async (_event, payload: { email?: string; password?: string }) => {
   const { email, password } = payload ?? {};
-  if (typeof email !== 'string' || !email.trim()) return { error: 'Email is required.' };
-  if (typeof password !== 'string' || !password) return { error: 'Password is required.' };
+  if (typeof email !== 'string' || !email.trim()) return { error: 'Enter your email.' };
+  if (typeof password !== 'string' || !password) return { error: 'Enter your password.' };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return { error: "That doesn't look like a valid email." };
 
   const baseUrl = dataspheresBaseUrl();
   const loginUrl = `${baseUrl}/api/auth/login`;
   console.log(`[auth] POST ${loginUrl} (email=${email.trim()})`);
   const t0 = Date.now();
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
+
   try {
     const res = await fetch(loginUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim(), password }),
+      signal: controller.signal,
     });
+    clearTimeout(timer);
     console.log(`[auth] login response: HTTP ${res.status} in ${Date.now() - t0}ms`);
 
     let body: Record<string, unknown> = {};
     try {
       body = await res.json();
-      // Don't log the full body (might contain the token) — log shape only.
       console.log(`[auth] response keys: ${Object.keys(body).join(', ')}`);
     } catch {
       console.warn('[auth] response was not JSON');
     }
 
     if (!res.ok) {
-      const errMsg = (body.error as string) || (body.message as string) || `Sign-in failed (HTTP ${res.status}).`;
-      console.warn(`[auth] login failed: ${errMsg}`);
-      return { error: errMsg };
+      const errMsg = categorizeHttpError(res.status, body);
+      console.warn(`[auth] login failed (${res.status}): ${errMsg}`);
+      return { error: errMsg, status: res.status };
     }
 
-    // Dataspheres returns different shapes. Try common token field names.
     const sessionToken =
       (body.token as string) ||
       (body.sessionToken as string) ||
@@ -231,17 +268,11 @@ ipcMain.handle('auth:login-email', async (_event, payload: { email?: string; pas
     if (!sessionToken) {
       console.error('[auth] no token field in response; available keys:', Object.keys(body));
       return {
-        error: 'Sign-in succeeded but no token was returned. The Dataspheres API response shape may have changed.',
+        error: 'Signed in, but the server didn’t return a token. The Dataspheres API may have changed — file an issue.',
       };
     }
 
-    // ── Exchange session token for an API key ────────────────────────────
-    // /api/auth/login returns a NextAuth session JWT, but the Dataspheres
-    // public API (used by CloudPanel etc.) expects a `dsk_...` API key in
-    // the Authorization: Bearer header. Try to create/fetch an API key
-    // using the session. Falls back to using the session token directly
-    // if no API key endpoint exists yet — CloudPanel will at least show
-    // a clear "Invalid API key" error in that case instead of a blank page.
+    // ── Exchange session token for an API key (best-effort) ──────────────
     console.log('[auth] exchanging session token for API key…');
     const apiKey = await exchangeSessionForApiKey(baseUrl, sessionToken);
     if (apiKey) {
@@ -249,14 +280,37 @@ ipcMain.handle('auth:login-email', async (_event, payload: { email?: string; pas
       return { ok: true, token: apiKey, isSessionToken: false };
     }
 
-    console.warn('[auth] no API key available; falling back to session token (may not work for cloud calls)');
+    console.warn('[auth] no API key endpoint available; falling back to session token');
     return { ok: true, token: sessionToken, isSessionToken: true };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[auth] login error: ${msg}`);
-    return {
-      error: `Could not reach Dataspheres AI. Check your connection. (${msg})`,
-    };
+    clearTimeout(timer);
+    const { code, message } = categorizeFetchError(err);
+    console.error(`[auth] login error (${code}): ${message}`);
+    return { error: message, code };
+  }
+});
+
+// Connection probe — used by the welcome screen's "Test connection" link
+// on the error state. Hits a known-cheap endpoint to verify whether the
+// configured base URL is reachable at all (separate from auth credentials).
+ipcMain.handle('auth:test-connection', async () => {
+  const baseUrl = dataspheresBaseUrl();
+  const url = `${baseUrl}/api/auth/providers`;
+  console.log(`[auth] test-connection GET ${url}`);
+  const t0 = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    const ms = Date.now() - t0;
+    console.log(`[auth] test-connection: HTTP ${res.status} in ${ms}ms`);
+    if (!res.ok) return { ok: false, status: res.status, ms, message: `Server returned HTTP ${res.status}` };
+    return { ok: true, status: res.status, ms };
+  } catch (err) {
+    clearTimeout(timer);
+    const { code, message } = categorizeFetchError(err);
+    return { ok: false, code, message };
   }
 });
 

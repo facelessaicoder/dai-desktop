@@ -62,11 +62,13 @@ export interface DaiAPI {
   };
   auth: {
     /** Sign in with email + password via /api/auth/login. Returns the session token. */
-    loginEmail: (email: string, password: string) => Promise<{ ok?: boolean; token?: string; error?: string; isSessionToken?: boolean }>;
+    loginEmail: (email: string, password: string) => Promise<{ ok?: boolean; token?: string; error?: string; isSessionToken?: boolean; status?: number; code?: string }>;
     /** Open Google OAuth in the user's default browser; token arrives via deepLink.onUrl. */
     loginGoogle: () => Promise<{ ok?: boolean; error?: string }>;
     /** Which Dataspheres environment URL the app is currently pointed at. */
     getBaseUrl: () => Promise<string>;
+    /** Ping the configured host to see if it's reachable (no creds needed). */
+    testConnection: () => Promise<{ ok: boolean; status?: number; ms?: number; code?: string; message?: string }>;
   };
 }
 
@@ -166,9 +168,10 @@ const daiAPI: DaiAPI = {
   },
 
   auth: {
-    loginEmail: (email, password) => ipcRenderer.invoke('auth:login-email', { email, password }),
-    loginGoogle: () => ipcRenderer.invoke('auth:login-google'),
-    getBaseUrl: () => ipcRenderer.invoke('auth:get-base-url'),
+    loginEmail:     (email, password) => ipcRenderer.invoke('auth:login-email', { email, password }),
+    loginGoogle:    () => ipcRenderer.invoke('auth:login-google'),
+    getBaseUrl:     () => ipcRenderer.invoke('auth:get-base-url'),
+    testConnection: () => ipcRenderer.invoke('auth:test-connection'),
   },
 };
 
