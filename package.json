@@ -38,6 +38,7 @@
     "rebuild:native": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "node scripts/postinstall.js",
     "doctor": "node scripts/doctor.js",
+    "install:local": "npm run package && rm -rf '/Applications/Dataspheres AI.app' && cp -R 'release/mac-arm64/Dataspheres AI.app' /Applications/ && open -n -a '/Applications/Dataspheres AI.app'",
     "test": "npm run test --workspaces --if-present",
     "integration-test": "node --experimental-sqlite --no-warnings=ExperimentalWarning integration_test.mjs",
     "test:e2e": "npm run build:main && npm run build:renderer && playwright test",
