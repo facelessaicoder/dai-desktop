@@ -210,7 +210,10 @@ const inner: React.CSSProperties = {
   textAlign: 'center',
   gap: space[3],
   width: '100%',
-  maxWidth: 360,
+  // Wide enough to fit "Welcome to Dataspheres AI" on one line at the
+  // display font size. Form children still constrained to a sensible
+  // width via inputWidth (~360 inside this 440 container).
+  maxWidth: 440,
   padding: space[6],
 };
 
@@ -219,6 +222,7 @@ const title: React.CSSProperties = {
   fontWeight: font.light,
   color: color.textPrimary,
   margin: 0,
+  whiteSpace: 'nowrap',
 };
 
 const subtitle: React.CSSProperties = {
