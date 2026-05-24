@@ -205,10 +205,11 @@ const footnote: React.CSSProperties = {
   gap: space[1],
 };
 
-// Same color as surrounding footnote text — visually one paragraph,
-// click target is the bottom line. Underline-on-hover for affordance.
+// Warm gold (modeVibe token) — ties to the icon's bronze tones, signals
+// "free tier" without competing with the primary Sign-in CTA. Underlined
+// for affordance.
 const footLink: React.CSSProperties = {
-  color: color.textMuted,
+  color: color.modeVibe,
   textDecoration: 'underline',
   cursor: 'pointer',
 };
