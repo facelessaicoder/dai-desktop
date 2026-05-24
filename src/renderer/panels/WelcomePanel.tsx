@@ -350,12 +350,15 @@ const input: React.CSSProperties = {
   width: '100%',
 };
 
+// Dark green button with white text — sampled from the icon's central
+// sphere (#2F3F1E forest). Pairs naturally with the icon palette
+// without competing with the accent mint elsewhere.
 const primaryBtn: React.CSSProperties = {
   padding: `${space[3]} ${space[6]}`,
   fontSize: font.body,
   fontWeight: font.medium,
-  color: '#0A1622',
-  background: color.accent,
+  color: '#FFFFFF',
+  background: '#2F3F1E',
   border: 'none',
   borderRadius: 8,
   cursor: 'pointer',

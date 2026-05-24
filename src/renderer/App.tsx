@@ -47,24 +47,24 @@ export function App() {
   }
 
   if (authState === 'unauthed') {
+    // Welcome screen: full-width drag bar always at the very top of the
+    // window so the user can move it before signing in. (The packed
+    // sidebar/main flex layout used after sign-in doesn't apply here.)
     return (
-      <div style={appShell}>
+      <div style={appShellColumn}>
         <div style={topDragBar} aria-hidden />
-        <WelcomePanel
-          onSignedIn={() => {
-            setAuthState('authed');
-            // Land in the Cloud panel so the user immediately sees their workspaces
-            navigate('cloud');
-          }}
-          onUseDeveloperKey={() => {
-            // Settings is where the manual key flow lives. Once a key is
-            // saved there, the Settings panel itself calls settings:set
-            // which we'll re-check on focus (TODO: subscribe to setting
-            // changes for live update).
-            setAuthState('authed');
-            navigate('settings');
-          }}
-        />
+        <div style={welcomeWrap}>
+          <WelcomePanel
+            onSignedIn={() => {
+              setAuthState('authed');
+              navigate('cloud');
+            }}
+            onUseDeveloperKey={() => {
+              setAuthState('authed');
+              navigate('settings');
+            }}
+          />
+        </div>
       </div>
     );
   }
@@ -103,10 +103,13 @@ export function App() {
 }
 
 // Normal-flow drag handle at the top of the main panel. NOT position:fixed —
-// fixed positioning combined with the Sidebar's app-region created a Chromium
-// repaint loop that tiled the entire sidebar across the window in dev mode.
+// fixed positioning combined with the Sidebar's app-region previously
+// created a Chromium repaint loop that tiled the entire sidebar across
+// the window. 36px ≈ standard macOS title-bar height — big enough to
+// grab without precision.
 const topDragBar: React.CSSProperties = {
-  height: 28,
+  height: 36,
+  width: '100%',
   flexShrink: 0,
   // @ts-expect-error — Electron-specific CSS property
   WebkitAppRegion: 'drag',
@@ -118,6 +121,24 @@ const appShell: React.CSSProperties = {
   height: '100vh',
   overflow: 'hidden',
   background: color.base,
+};
+
+// Column variant used by the welcome screen so the drag bar can sit
+// above the panel as a full-width row instead of fighting the main
+// shell's row-flex.
+const appShellColumn: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  width: '100vw',
+  height: '100vh',
+  overflow: 'hidden',
+  background: color.base,
+};
+
+const welcomeWrap: React.CSSProperties = {
+  flex: 1,
+  display: 'flex',
+  overflow: 'hidden',
 };
 
 const mainArea: React.CSSProperties = {
