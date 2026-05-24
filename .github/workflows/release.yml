@@ -1,0 +1,70 @@
+name: Release
+
+# Builds + signs + publishes installers for every git tag matching v*.
+# electron-builder uploads artifacts to the matching GitHub Release draft.
+#
+# Required secrets (added to repo settings → Secrets and variables → Actions):
+#   GH_TOKEN                — personal access token with `repo` scope, used
+#                              by electron-builder to upload to the Release.
+#   APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
+#                            — for macOS notarization. If absent, mac job
+#                              still builds an unsigned .dmg (development only).
+#   CSC_LINK / CSC_KEY_PASSWORD
+#                            — code-signing cert (.p12, base64-encoded).
+#                              Used for both macOS and Windows.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest]
+        # TODO: enable Windows + Linux runners once cross-platform builds
+        # are verified locally with `npm run package`.
+        # os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+        env:
+          DAI_SKIP_NATIVE_REBUILD: '1'
+
+      - name: Rebuild native modules for Electron
+        run: npm run rebuild:native
+
+      - name: Build core + planner + renderer + main
+        run: |
+          npm run build:core
+          npm run build:planner
+          npm run build:renderer
+          npm run build:main
+
+      - name: Package + publish to GitHub Releases
+        run: npx electron-builder --publish always

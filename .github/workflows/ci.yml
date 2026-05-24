@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel in-progress runs for the same ref to save minutes
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: e2e (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest]
+        # TODO: enable Linux + Windows once we verify cross-platform behavior
+        # os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+
+    env:
+      # Keep CI fast — postinstall rebuild kicks in via npm,
+      # no need to install Playwright browser binaries (we drive Electron).
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      # Don't open DevTools in headless test runs
+      DAI_AUTO_DEVTOOLS: '0'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        # Skip the heavy electron-rebuild during install; we rebuild
+        # explicitly in the next step so we can see clear timing.
+        run: DAI_SKIP_NATIVE_REBUILD=1 npm install
+        env:
+          DAI_SKIP_NATIVE_REBUILD: '1'
+
+      - name: Rebuild native modules for Electron
+        run: npm run rebuild:native
+
+      - name: Build core + planner + renderer + main
+        run: |
+          npm run build:core
+          npm run build:planner
+          npm run build:renderer
+          npm run build:main
+
+      - name: Run e2e tests
+        run: npx playwright test
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results-${{ matrix.os }}
+          path: |
+            test-results/
+            tests/e2e/screenshots/
+          retention-days: 7

@@ -42,6 +42,30 @@ export interface DaiAPI {
     listPlanModes: (dsId: string) => Promise<{ ok?: boolean; data?: unknown; error?: string }>;
     quickCapture: (text: string, type: 'page' | 'task', opts?: Record<string, unknown>) => Promise<{ ok?: boolean; data?: unknown; error?: string }>;
   };
+  updater: {
+    /** Fires when an update is available. Returns an unsubscribe fn. */
+    onAvailable: (cb: (info: { version: string; releaseNotes?: string }) => void) => () => void;
+    /** Fires when the downloaded update is ready to install. */
+    onDownloaded: (cb: (info: { version: string; releaseNotes?: string }) => void) => () => void;
+    /** Fires with download progress (0-100). */
+    onProgress: (cb: (p: { percent: number; transferred: number; total: number }) => void) => () => void;
+    /** Restart the app and install the downloaded update. */
+    installNow: () => Promise<void>;
+  };
+  deepLink: {
+    /** Fires when the OS hands the app a `dataspheres://` URL. */
+    onUrl: (cb: (url: string) => void) => () => void;
+  };
+  shell: {
+    /** Open an http(s) URL in the user's default browser. */
+    openExternal: (url: string) => Promise<{ ok?: boolean; error?: string }>;
+  };
+  auth: {
+    /** Sign in with email + password via /api/auth/login. Returns the session token. */
+    loginEmail: (email: string, password: string) => Promise<{ ok?: boolean; token?: string; error?: string }>;
+    /** Open Google OAuth in the user's default browser; token arrives via deepLink.onUrl. */
+    loginGoogle: () => Promise<{ ok?: boolean; error?: string }>;
+  };
 }
 
 const daiAPI: DaiAPI = {
@@ -106,6 +130,42 @@ const daiAPI: DaiAPI = {
     listTasks:       (dsId, planModeId) => ipcRenderer.invoke('cloud:list-tasks', { dsId, planModeId }),
     listPlanModes:   (dsId)       => ipcRenderer.invoke('cloud:list-plan-modes', dsId),
     quickCapture:    (text, type, opts) => ipcRenderer.invoke('cloud:quick-capture', { text, type, opts }),
+  },
+
+  updater: {
+    onAvailable: (cb) => {
+      const handler = (_: Electron.IpcRendererEvent, info: { version: string; releaseNotes?: string }) => cb(info);
+      ipcRenderer.on('update:available', handler);
+      return () => ipcRenderer.removeListener('update:available', handler);
+    },
+    onDownloaded: (cb) => {
+      const handler = (_: Electron.IpcRendererEvent, info: { version: string; releaseNotes?: string }) => cb(info);
+      ipcRenderer.on('update:downloaded', handler);
+      return () => ipcRenderer.removeListener('update:downloaded', handler);
+    },
+    onProgress: (cb) => {
+      const handler = (_: Electron.IpcRendererEvent, p: { percent: number; transferred: number; total: number }) => cb(p);
+      ipcRenderer.on('update:progress', handler);
+      return () => ipcRenderer.removeListener('update:progress', handler);
+    },
+    installNow: () => ipcRenderer.invoke('update:install-now'),
+  },
+
+  deepLink: {
+    onUrl: (cb) => {
+      const handler = (_: Electron.IpcRendererEvent, url: string) => cb(url);
+      ipcRenderer.on('deep-link', handler);
+      return () => ipcRenderer.removeListener('deep-link', handler);
+    },
+  },
+
+  shell: {
+    openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
+  },
+
+  auth: {
+    loginEmail: (email, password) => ipcRenderer.invoke('auth:login-email', { email, password }),
+    loginGoogle: () => ipcRenderer.invoke('auth:login-google'),
   },
 };
 

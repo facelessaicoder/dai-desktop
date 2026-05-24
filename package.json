@@ -1,5 +1,6 @@
 {
   "name": "dai-desktop",
+  "productName": "Dataspheres AI",
   "version": "0.1.0",
   "description": "Local-first AI workspace — standalone Electron app with Ari embedded",
   "license": "MIT",
@@ -17,6 +18,7 @@
     "@types/node": "^22.19.19",
     "apache-arrow": "^21.1.0",
     "better-sqlite3": "^12.10.0",
+    "electron-updater": "^6.8.3",
     "framer-motion": "^11.0.0",
     "lucide-react": "^0.395.0",
     "node-llama-cpp": "^3.0.0",
@@ -24,7 +26,7 @@
     "react-dom": "^18.0.0"
   },
   "scripts": {
-    "bootstrap": "npm install && npm run build:core && npm run build:renderer && npm run build:main",
+    "bootstrap": "npm install && npm run rebuild:native && npm run build:core && npm run build:planner && npm run build:renderer && npm run build:main",
     "build:core": "npm run build --workspace=packages/dai-core",
     "build:planner": "npm run build --workspace=packages/planner-panel",
     "build:ext": "npm run build --workspace=extensions/dai-ari",
@@ -32,28 +34,50 @@
     "build:main": "tsc -p tsconfig.main.json",
     "dev:renderer": "vite --config vite.renderer.config.ts",
     "dev": "node scripts/dev.js",
-    "package": "npm run build:core && npm run build:renderer && npm run build:main && electron-builder",
-    "test": "npm run test --workspaces",
+    "package": "npm run build:core && npm run build:planner && npm run build:renderer && npm run build:main && electron-builder",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3",
+    "postinstall": "node scripts/postinstall.js",
+    "doctor": "node scripts/doctor.js",
+    "test": "npm run test --workspaces --if-present",
     "integration-test": "node --experimental-sqlite --no-warnings=ExperimentalWarning integration_test.mjs",
+    "test:e2e": "npm run build:main && npm run build:renderer && playwright test",
+    "test:e2e:headed": "HEADED=1 npm run test:e2e",
     "lint": "eslint packages/*/src src/renderer --ext .ts,.tsx"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",
+    "@playwright/test": "^1.60.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
     "@vitejs/plugin-react": "^4.0.0",
     "cross-env": "^10.1.0",
     "electron": "^31.7.7",
     "electron-builder": "^24.0.0",
     "eslint": "^9.0.0",
+    "playwright": "^1.60.0",
     "typescript": "^5.4.0",
     "vite": "^5.0.0"
   },
   "build": {
     "appId": "ai.dataspheres.dai-desktop",
-    "productName": "dai-desktop",
+    "productName": "Dataspheres AI",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "facelessaicoder",
+        "repo": "dai-desktop",
+        "releaseType": "release"
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Dataspheres AI",
+        "schemes": ["dataspheres"]
+      }
+    ],
     "copyright": "Copyright © 2026 facelessaicoder",
     "directories": {
       "output": "release"
@@ -73,15 +97,15 @@
     ],
     "mac": {
       "target": "dmg",
-      "icon": "assets/icons/icon.icns"
+      "icon": "assets/icon.icns"
     },
     "linux": {
       "target": "AppImage",
-      "icon": "assets/icons/icon.png"
+      "icon": "assets/icon.png"
     },
     "win": {
       "target": "nsis",
-      "icon": "assets/icons/icon.ico"
+      "icon": "assets/icon.ico"
     }
   }
 }

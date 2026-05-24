@@ -1,6 +1,221 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, safeStorage, session, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { autoUpdater } from 'electron-updater';
+
+// ── Branding ─────────────────────────────────────────────────────────────────
+// Override Electron's default "Electron" name in the menu bar, About panel, and
+// userData path. Must be called BEFORE app.whenReady() / any app.* path call.
+app.setName('Dataspheres AI');
+
+// ── Test isolation ───────────────────────────────────────────────────────────
+// Allow e2e tests to redirect userData (settings.json, sqlite, etc.) to a
+// temp dir per run, preventing test runs from clobbering the user's real
+// Application Support data. Honored only when set — has no effect in normal
+// app usage.
+if (process.env.ELECTRON_USER_DATA) {
+  try {
+    app.setPath('userData', process.env.ELECTRON_USER_DATA);
+  } catch (err) {
+    console.warn('[main] Could not override userData path:', err);
+  }
+}
+
+// ── Custom URL scheme ────────────────────────────────────────────────────────
+// Registers `dataspheres://` so the OS hands clicks on those links to this
+// app. Used by the future OAuth / magic-link auth flow:
+//   1. App opens https://dataspheres.ai/auth/desktop?return=dataspheres://auth
+//   2. User signs in via browser
+//   3. Site redirects to dataspheres://auth?token=...
+//   4. OS launches (or focuses) this app with the URL
+//   5. We capture the token and pass it to the renderer
+//
+// On macOS the redirect arrives via `open-url`. On Windows/Linux it arrives
+// as the last argv on relaunch — we use `second-instance` to forward it
+// to the running window.
+const PROTOCOL = 'dataspheres';
+if (process.defaultApp) {
+  // Dev: argv has node + script, the URL is process.argv[2]
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient(PROTOCOL);
+}
+
+// Forward incoming URLs to the renderer once a window exists.
+let pendingDeepLink: string | null = null;
+function deliverDeepLink(url: string): void {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('deep-link', url);
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  } else {
+    // No window yet — stash until createWindow's ready-to-show fires
+    pendingDeepLink = url;
+  }
+}
+
+// macOS — `open-url` fires when the OS hands a dataspheres:// URL to us
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  deliverDeepLink(url);
+});
+
+// Windows/Linux — the URL comes as argv on second-instance launch
+const singleInstanceLock = app.requestSingleInstanceLock();
+if (!singleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const url = argv.find((a) => a.startsWith(`${PROTOCOL}://`));
+    if (url) deliverDeepLink(url);
+  });
+}
+
+
+
+// Icon resolution — resolved relative to the compiled main.js in /dist.
+// Prefer the squircle PNG (transparent corners, proper macOS shape); fall back
+// to the source JPG so the app still has an icon on machines where the
+// generated PNG isn't present.
+const ICON_PNG = path.join(__dirname, '..', 'assets', 'icon.png');
+const ICON_JPG = path.join(__dirname, '..', 'assets', 'icon.jpg');
+const ICON_PATH = fs.existsSync(ICON_PNG) ? ICON_PNG : ICON_JPG;
+
+// ── Auto-update ──────────────────────────────────────────────────────────────
+// electron-updater checks GitHub Releases for a newer version, downloads it
+// in the background, then prompts the user (via IPC → renderer toast) to
+// restart and install. Configured in package.json under "build.publish".
+//
+// Behaviour summary:
+//   1. Silent check on startup (skipped in dev)
+//   2. If a newer version is available: notify renderer
+//   3. Download in background, again notify when ready
+//   4. User clicks "Restart to update" → autoUpdater.quitAndInstall()
+//
+// Set DAI_DISABLE_AUTO_UPDATE=1 to skip the check (useful for QA builds).
+function configureAutoUpdater(getMainWindow: () => BrowserWindow | null): void {
+  if (process.env.NODE_ENV === 'development' || process.env.DAI_DISABLE_AUTO_UPDATE === '1') {
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  const send = (channel: string, payload?: unknown) => {
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+  };
+
+  autoUpdater.on('checking-for-update', () => send('update:checking'));
+  autoUpdater.on('update-available', (info) =>
+    send('update:available', { version: info.version, releaseNotes: info.releaseNotes }),
+  );
+  autoUpdater.on('update-not-available', () => send('update:none'));
+  autoUpdater.on('download-progress', (p) =>
+    send('update:progress', { percent: p.percent, transferred: p.transferred, total: p.total }),
+  );
+  autoUpdater.on('update-downloaded', (info) =>
+    send('update:downloaded', { version: info.version, releaseNotes: info.releaseNotes }),
+  );
+  autoUpdater.on('error', (err) => {
+    console.warn('[autoUpdater]', err.message);
+    send('update:error', { message: err.message });
+  });
+
+  // Run shortly after launch so the renderer has time to attach listeners.
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.warn('[autoUpdater] checkForUpdates failed:', err);
+    });
+  }, 3_000);
+}
+
+ipcMain.handle('update:install-now', () => {
+  autoUpdater.quitAndInstall();
+});
+
+// Open an external URL in the user's default browser. Used by the welcome
+// screen to start the OAuth flow. Restricted to https:// and http:// — never
+// opens file://, custom schemes, or non-web URLs (defense against tricks
+// from compromised renderer code).
+ipcMain.handle('shell:open-external', async (_event, url: string) => {
+  if (typeof url !== 'string') return { error: 'url must be a string' };
+  if (!/^https?:\/\//i.test(url)) return { error: 'only http(s) URLs may be opened' };
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (err) {
+    return { error: String(err) };
+  }
+});
+
+// ── Auth: email + password ────────────────────────────────────────────────────
+// POST to ${DATASPHERES_BASE_URL}/api/auth/login. Returns either {ok, token}
+// on success or {error} on auth failure / network failure. The renderer
+// passes the token to settings:set('cloudApiKey', token).
+//
+// Base URL resolves from DATASPHERES_BASE_URL env (set in dev via .env) or
+// falls back to production. We never send the password anywhere else and
+// the response body is parsed in-place — the renderer only sees the token
+// string, not the raw HTTP body.
+function dataspheresBaseUrl(): string {
+  return process.env.DATASPHERES_BASE_URL || 'https://dataspheres.ai';
+}
+
+ipcMain.handle('auth:login-email', async (_event, payload: { email?: string; password?: string }) => {
+  const { email, password } = payload ?? {};
+  if (typeof email !== 'string' || !email.trim()) return { error: 'Email is required.' };
+  if (typeof password !== 'string' || !password) return { error: 'Password is required.' };
+
+  const url = `${dataspheresBaseUrl()}/api/auth/login`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim(), password }),
+    });
+
+    // Try to parse JSON either way — Dataspheres returns JSON on both
+    // success and failure paths.
+    let body: { token?: string; sessionToken?: string; accessToken?: string; error?: string; message?: string } = {};
+    try { body = await res.json(); } catch { /* non-JSON response, leave body empty */ }
+
+    if (!res.ok) {
+      return { error: body.error || body.message || `Sign-in failed (HTTP ${res.status}).` };
+    }
+
+    const token = body.token || body.sessionToken || body.accessToken;
+    if (!token) {
+      return {
+        error: 'Sign-in succeeded but no token returned. The Dataspheres API may have changed — file an issue.',
+      };
+    }
+
+    return { ok: true, token };
+  } catch (err) {
+    return {
+      error: `Could not reach Dataspheres AI. Check your connection. (${err instanceof Error ? err.message : String(err)})`,
+    };
+  }
+});
+
+// ── Auth: Google OAuth ────────────────────────────────────────────────────────
+// Convenience helper — same as shell.openExternal but builds the URL with the
+// correct callbackUrl so Dataspheres' NextAuth Google handler knows where to
+// redirect back to (our `dataspheres://auth` deep-link scheme).
+ipcMain.handle('auth:login-google', async () => {
+  const callback = encodeURIComponent('dataspheres://auth');
+  const url = `${dataspheresBaseUrl()}/api/auth/google?callbackUrl=${callback}`;
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (err) {
+    return { error: String(err) };
+  }
+});
 
 // ── Lazy-import dai-core to avoid loading node-llama-cpp until needed ─────────
 // These are resolved at runtime from the compiled package output.
@@ -165,7 +380,7 @@ function initCloud(apiKey: string): void {
 }
 
 // ── Window factory ─────────────────────────────────────────────────────────────
-function createWindow(): BrowserWindow {
+function createWindow(): BrowserWindow | null {
   const isDev = process.env.NODE_ENV === 'development';
 
   const win = new BrowserWindow({
@@ -173,10 +388,15 @@ function createWindow(): BrowserWindow {
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    title: 'Dataspheres AI',
+    icon: ICON_PATH,
     frame: process.platform !== 'darwin',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
+    // Let macOS position traffic lights at their default location — overriding
+    // them caused collisions with sidebar content.
     vibrancy: process.platform === 'darwin' ? 'under-window' : undefined,
-    backgroundColor: '#08090E',
+    // Deep ocean blue — keep in sync with color.base in packages/dai-ui/src/tokens.ts
+    backgroundColor: '#0A1622',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -188,18 +408,57 @@ function createWindow(): BrowserWindow {
 
   if (isDev) {
     win.loadURL(process.env.RENDERER_DEV_URL ?? 'http://localhost:5173');
-    win.webContents.openDevTools({ mode: 'detach' });
+    // DevTools is OFF by default in dev — was popping a second window on every
+    // launch which is more annoying than useful. Press Cmd+Opt+I (Mac) /
+    // Ctrl+Shift+I (Win/Linux) when you actually want it, or set
+    // DAI_DEVTOOLS=1 to bring back auto-open behavior.
+    if (process.env.DAI_DEVTOOLS === '1') {
+      win.webContents.openDevTools({ mode: 'detach' });
+    }
+
+    // Forward renderer console messages to a tail-able log file so debugging
+    // doesn't depend on CDP (which has been flaky for me locally).
+    try {
+      const logPath = path.join(app.getPath('userData'), 'renderer-console.log');
+      fs.writeFileSync(logPath, ''); // truncate per launch
+      win.webContents.on('console-message', (_event, level, message, line, source) => {
+        const stamp = new Date().toISOString();
+        fs.appendFileSync(
+          logPath,
+          `[${stamp}] [L${level}] ${message}  (${source}:${line})\n`,
+        );
+      });
+      console.log(`[main] Renderer console → ${logPath}`);
+    } catch (err) {
+      console.warn('[main] Failed to set up renderer console log:', err);
+    }
   } else {
     win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   }
 
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    win.show();
+    // Deliver any deep-link that arrived before the window was ready
+    if (pendingDeepLink) {
+      win.webContents.send('deep-link', pendingDeepLink);
+      pendingDeepLink = null;
+    }
+  });
 
   return win;
 }
 
 // ── App lifecycle ──────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  // macOS dock icon — must be set after `app` is ready
+  if (process.platform === 'darwin' && app.dock && fs.existsSync(ICON_PATH)) {
+    try {
+      app.dock.setIcon(nativeImage.createFromPath(ICON_PATH));
+    } catch (err) {
+      console.warn('[main] Failed to set dock icon:', err);
+    }
+  }
+
   // Allow local file loads inside iframes/webviews for the planner panel
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
@@ -227,7 +486,14 @@ app.whenReady().then(() => {
     console.error('[main] Failed to load dai-core:', err);
   }
 
-  createWindow();
+  const firstWindow = createWindow();
+
+  // Wire auto-update — looks at GitHub Releases (see build.publish in package.json)
+  configureAutoUpdater(() =>
+    firstWindow && !firstWindow.isDestroyed()
+      ? firstWindow
+      : (BrowserWindow.getAllWindows()[0] ?? null),
+  );
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

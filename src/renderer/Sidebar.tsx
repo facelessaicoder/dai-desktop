@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { MessageSquare, Layout, Cloud, Settings } from 'lucide-react';
-import { color, font, space, spring } from '@dai-desktop/ui';
+import { color, space, spring } from '@dai-desktop/ui';
 
 export type PanelId = 'chat' | 'planner' | 'cloud' | 'settings';
 
@@ -26,21 +26,19 @@ interface SidebarProps {
 export function Sidebar({ active, onNavigate }: SidebarProps) {
   return (
     <nav style={sidebarStyle}>
-      {/* Dataspheres AI logo mark */}
+      {/* Dataspheres AI logo mark — real squircle from assets/icon.png
+          (served via src/renderer/public/icon.png symlink). */}
       <div style={logoSlot} title="Dataspheres AI">
-        <motion.div
-          animate={{ filter: [`drop-shadow(0 0 4px ${color.accent})`, `drop-shadow(0 0 10px ${color.accent})`, `drop-shadow(0 0 4px ${color.accent})`] }}
+        <motion.img
+          src="./icon.png"
+          alt="Dataspheres AI"
+          width={32}
+          height={32}
+          draggable={false}
+          style={{ borderRadius: 6, display: 'block' }}
+          animate={{ filter: [`drop-shadow(0 0 4px ${color.accentDim})`, `drop-shadow(0 0 10px ${color.accentDim})`, `drop-shadow(0 0 4px ${color.accentDim})`] }}
           transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
-        >
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            {/* Outer orbit ring */}
-            <ellipse cx="14" cy="14" rx="12" ry="5" stroke={color.accent} strokeWidth="1.2" strokeOpacity="0.5" transform="rotate(-30 14 14)" />
-            {/* Inner sphere */}
-            <circle cx="14" cy="14" r="5.5" fill={color.accent} fillOpacity="0.15" stroke={color.accent} strokeWidth="1.4" />
-            {/* Core dot */}
-            <circle cx="14" cy="14" r="2" fill={color.accent} />
-          </svg>
-        </motion.div>
+        />
       </div>
 
       {/* Nav items */}
@@ -93,8 +91,11 @@ const sidebarStyle: React.CSSProperties = {
   borderRight: `1px solid ${color.border}`,
   paddingBottom: space[4],
   userSelect: 'none',
-  // macOS drag region — only the sidebar acts as window drag handle
-  WebkitAppRegion: 'drag' as React.CSSProperties['WebkitAppRegion'],
+  // NOTE: previously set WebkitAppRegion:'drag' here, but combining a
+  // drag region with the orb's infinite filter:drop-shadow animation caused
+  // Chromium to skip layer invalidation in Electron — sidebar ghost-trails
+  // would tile across the window during animation. The dedicated topDragBar
+  // in App.tsx handles dragging; the sidebar itself stays a normal element.
 };
 
 const logoSlot: React.CSSProperties = {
@@ -102,10 +103,12 @@ const logoSlot: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   width: '100%',
-  height: 52,
+  // Tall enough to clear macOS traffic lights (~28px tall, starting near y=18)
+  // without the logo crashing into them.
+  height: process.platform === 'darwin' ? 72 : 52,
   flexShrink: 0,
-  // macOS inset titlebar overlap
-  paddingTop: process.platform === 'darwin' ? 16 : 0,
+  // Push the logo below the traffic-light strip on macOS hiddenInset windows.
+  paddingTop: process.platform === 'darwin' ? 38 : 0,
 };
 
 
@@ -117,8 +120,7 @@ const navList: React.CSSProperties = {
   flex: 1,
   width: '100%',
   paddingTop: space[2],
-  // buttons should not be drag targets
-  WebkitAppRegion: 'no-drag' as React.CSSProperties['WebkitAppRegion'],
+  // no WebkitAppRegion needed — sidebarStyle is no longer a drag region.
 };
 
 const navBtn: React.CSSProperties = {

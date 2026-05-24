@@ -23,7 +23,10 @@ export default defineConfig({
     'process.platform': JSON.stringify(process.platform),
   },
   server: {
-    port: 5173,
+    // Default to 5174 to avoid colliding with the dataspheres.ai web app or other
+    // Vite projects that commonly bind 5173. scripts/dev.js passes --port explicitly
+    // so this value only matters when running `npm run dev:renderer` directly.
+    port: 5174,
     strictPort: true,
   },
   optimizeDeps: {

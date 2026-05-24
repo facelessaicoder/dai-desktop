@@ -11,6 +11,10 @@ packages/*/node_modules/
 ~/.dai-desktop/
 release/
 
+# Playwright e2e — per-run artifacts (committed screenshots stay as baselines)
+test-results/
+playwright-report/
+
 # Compiled test outputs (ts-jest artifacts — not source)
 packages/*/__tests__/**/*.js
 packages/*/__tests__/**/*.js.map

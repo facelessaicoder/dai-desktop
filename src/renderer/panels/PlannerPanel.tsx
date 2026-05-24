@@ -7,20 +7,26 @@ import { motion } from 'framer-motion';
 // proxy all sdd:* messages between it and the main process via window.dai.sdd.dispatch.
 
 function getPlannerUrl(): string {
-  // In production the renderer is served from file:// so we can load the
-  // planner dist directly. In dev we load the planner's own dev server.
-  if (process.env.NODE_ENV === 'development' && process.env.PLANNER_DEV_URL) {
-    return process.env.PLANNER_DEV_URL;
+  const isDev = process.env.NODE_ENV === 'development';
+
+  // ── Dev mode ────────────────────────────────────────────────────────────
+  // Only use the planner-panel dev server when PLANNER_DEV_URL is set. Falling
+  // back to a relative file:// path doesn't work here — `window.location.href`
+  // is `http://localhost:5174/`, and any path under that gets caught by Vite's
+  // SPA fallback (which serves the renderer's own index.html). That caused an
+  // infinite-recursive iframe of the entire dai-desktop UI: each level loaded
+  // the renderer, which set Planner active from localStorage, which spawned
+  // another iframe pointed at the same URL, etc. Symptom was ~16 sidebars
+  // tiled across the window. Return '' so PlannerPanel shows BuildInstructions.
+  if (isDev) {
+    return process.env.PLANNER_DEV_URL ?? '';
   }
 
-  // Resolve relative to this renderer's origin. In production Electron loads
-  // renderer/index.html from dist/renderer, so going up two levels reaches the
-  // project root, then into packages/planner-panel/dist.
-  // We use a relative file path that Electron will resolve correctly.
+  // ── Production ──────────────────────────────────────────────────────────
+  // Renderer is served from file://, so we can resolve the packaged planner
+  // dist directly via a relative path.
   try {
     const base = window.location.href;
-    // e.g. file:///C:/Users/.../dist/renderer/index.html
-    // Navigate: ../../packages/planner-panel/dist/index.html
     const url = new URL('../../packages/planner-panel/dist/index.html', base);
     return url.href;
   } catch {
