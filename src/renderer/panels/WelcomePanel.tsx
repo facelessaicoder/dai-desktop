@@ -350,15 +350,14 @@ const input: React.CSSProperties = {
   width: '100%',
 };
 
-// Dark green button with white text — sampled from the icon's central
-// sphere (#2F3F1E forest). Pairs naturally with the icon palette
-// without competing with the accent mint elsewhere.
+// Super-dark money green with white text — saturated cool green, not the
+// olive/yellow forest tone of #2F3F1E. Reads like US-dollar-bill ink.
 const primaryBtn: React.CSSProperties = {
   padding: `${space[3]} ${space[6]}`,
   fontSize: font.body,
   fontWeight: font.medium,
   color: '#FFFFFF',
-  background: '#2F3F1E',
+  background: '#0A4720',
   border: 'none',
   borderRadius: 8,
   cursor: 'pointer',
