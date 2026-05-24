@@ -152,6 +152,71 @@ ipcMain.handle('shell:open-external', async (_event, url: string) => {
   }
 });
 
+// ── Auth: email + password ────────────────────────────────────────────────────
+// POST to ${DATASPHERES_BASE_URL}/api/auth/login. Returns either {ok, token}
+// on success or {error} on auth failure / network failure. The renderer
+// passes the token to settings:set('cloudApiKey', token).
+//
+// Base URL resolves from DATASPHERES_BASE_URL env (set in dev via .env) or
+// falls back to production. We never send the password anywhere else and
+// the response body is parsed in-place — the renderer only sees the token
+// string, not the raw HTTP body.
+function dataspheresBaseUrl(): string {
+  return process.env.DATASPHERES_BASE_URL || 'https://dataspheres.ai';
+}
+
+ipcMain.handle('auth:login-email', async (_event, payload: { email?: string; password?: string }) => {
+  const { email, password } = payload ?? {};
+  if (typeof email !== 'string' || !email.trim()) return { error: 'Email is required.' };
+  if (typeof password !== 'string' || !password) return { error: 'Password is required.' };
+
+  const url = `${dataspheresBaseUrl()}/api/auth/login`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim(), password }),
+    });
+
+    // Try to parse JSON either way — Dataspheres returns JSON on both
+    // success and failure paths.
+    let body: { token?: string; sessionToken?: string; accessToken?: string; error?: string; message?: string } = {};
+    try { body = await res.json(); } catch { /* non-JSON response, leave body empty */ }
+
+    if (!res.ok) {
+      return { error: body.error || body.message || `Sign-in failed (HTTP ${res.status}).` };
+    }
+
+    const token = body.token || body.sessionToken || body.accessToken;
+    if (!token) {
+      return {
+        error: 'Sign-in succeeded but no token returned. The Dataspheres API may have changed — file an issue.',
+      };
+    }
+
+    return { ok: true, token };
+  } catch (err) {
+    return {
+      error: `Could not reach Dataspheres AI. Check your connection. (${err instanceof Error ? err.message : String(err)})`,
+    };
+  }
+});
+
+// ── Auth: Google OAuth ────────────────────────────────────────────────────────
+// Convenience helper — same as shell.openExternal but builds the URL with the
+// correct callbackUrl so Dataspheres' NextAuth Google handler knows where to
+// redirect back to (our `dataspheres://auth` deep-link scheme).
+ipcMain.handle('auth:login-google', async () => {
+  const callback = encodeURIComponent('dataspheres://auth');
+  const url = `${dataspheresBaseUrl()}/api/auth/google?callbackUrl=${callback}`;
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (err) {
+    return { error: String(err) };
+  }
+});
+
 // ── Lazy-import dai-core to avoid loading node-llama-cpp until needed ─────────
 // These are resolved at runtime from the compiled package output.
 let AgentLoop: typeof import('./packages/dai-core/dist/index').AgentLoop;

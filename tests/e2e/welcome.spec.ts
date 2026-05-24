@@ -19,14 +19,22 @@ test.afterAll(async () => {
   await teardown(r);
 });
 
-test('welcome screen is shown when no API key is configured', async () => {
+test('welcome screen renders the brand hero', async () => {
   await expect(r.window.locator('text=Welcome to Dataspheres AI')).toBeVisible({ timeout: 5_000 });
-  await expect(r.window.locator('text=Sign in with Dataspheres AI')).toBeVisible();
+  await expect(r.window.locator('img[alt="Dataspheres AI"]')).toBeVisible();
+});
+
+test('welcome form exposes email + password + sign-in', async () => {
+  await expect(r.window.locator('input[type="email"]')).toBeVisible();
+  await expect(r.window.locator('input[type="password"]')).toBeVisible();
+  await expect(r.window.locator('button[type="submit"]:has-text("Sign in")')).toBeVisible();
+});
+
+test('Continue with Google is offered as an alternative', async () => {
+  await expect(r.window.locator('text=Continue with Google')).toBeVisible();
 });
 
 test('sidebar is hidden until the user is signed in', async () => {
-  // The four nav buttons are only rendered by the main app shell, not the
-  // welcome screen. Their absence is the gate working correctly.
   expect(await r.window.locator('button[title="Chat"]').count()).toBe(0);
   expect(await r.window.locator('button[title="Settings"]').count()).toBe(0);
 });
@@ -34,16 +42,12 @@ test('sidebar is hidden until the user is signed in', async () => {
 test('"developer key" link reveals the Settings panel', async () => {
   await r.window.locator('text=I have a developer API key').click();
   await r.window.waitForTimeout(800);
-  // After clicking, the app marks itself as "authed" and shows the main shell
   await expect(r.window.locator('button[title="Settings"]')).toBeVisible({ timeout: 5_000 });
 });
 
 test('captures welcome screen for visual baseline', async () => {
-  // Relaunch unauthed to capture a clean welcome screen
   await teardown(r);
   r = await launchApp({ DAI_SKIP_SEED_AUTH: '1' });
-  await r.window.waitForTimeout(1000);
-  await r.window.screenshot({
-    path: path.join(__dirname, 'screenshots', 'welcome.png'),
-  });
+  await r.window.waitForTimeout(1200);
+  await r.window.screenshot({ path: path.join(__dirname, 'screenshots', 'welcome.png') });
 });

@@ -60,6 +60,12 @@ export interface DaiAPI {
     /** Open an http(s) URL in the user's default browser. */
     openExternal: (url: string) => Promise<{ ok?: boolean; error?: string }>;
   };
+  auth: {
+    /** Sign in with email + password via /api/auth/login. Returns the session token. */
+    loginEmail: (email: string, password: string) => Promise<{ ok?: boolean; token?: string; error?: string }>;
+    /** Open Google OAuth in the user's default browser; token arrives via deepLink.onUrl. */
+    loginGoogle: () => Promise<{ ok?: boolean; error?: string }>;
+  };
 }
 
 const daiAPI: DaiAPI = {
@@ -155,6 +161,11 @@ const daiAPI: DaiAPI = {
 
   shell: {
     openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
+  },
+
+  auth: {
+    loginEmail: (email, password) => ipcRenderer.invoke('auth:login-email', { email, password }),
+    loginGoogle: () => ipcRenderer.invoke('auth:login-google'),
   },
 };
 
