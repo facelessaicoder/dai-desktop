@@ -5,6 +5,18 @@ export interface ChatMessage {
   content: string;
 }
 
+export type BackendType = 'local' | 'ollama' | 'claude' | 'none';
+
+export interface SkillMeta {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  argumentHint?: string;
+  source: 'bundled' | 'user';
+  filePath: string;
+}
+
 // ── Dataspheres cloud types (mirrored from dai-core) ─────────────────────────
 
 export interface CloudDatasphere {
@@ -57,10 +69,15 @@ export interface DaiAPI {
   };
   chat: {
     send: (message: string, history: ChatMessage[]) => Promise<{ ok?: boolean; error?: boolean; message?: string }>;
-    onToken:      (cb: (token: string) => void)  => () => void;
-    onToolUse:    (cb: (data: unknown) => void)   => () => void;
-    onToolResult: (cb: (data: unknown) => void)   => () => void;
-    onDone:       (cb: (data: unknown) => void)   => () => void;
+    onToken:         (cb: (token: string) => void)        => () => void;
+    onToolUse:       (cb: (data: unknown) => void)        => () => void;
+    onToolResult:    (cb: (data: unknown) => void)        => () => void;
+    onDone:          (cb: (data: unknown) => void)        => () => void;
+    onBackendChange: (cb: (backend: BackendType) => void) => () => void;
+  };
+  skills: {
+    list: () => Promise<{ ok?: boolean; data?: SkillMeta[]; error?: string }>;
+    getContent: (filePath: string) => Promise<{ ok?: boolean; data?: string; error?: string }>;
   };
   sdd: {
     dispatch: (type: string, payload?: unknown) => Promise<{ ok?: boolean; data?: unknown; error?: string }>;
@@ -82,6 +99,24 @@ export interface DaiAPI {
     listTasks: (dsId: string, planModeId?: string) => Promise<{ ok?: boolean; data?: CloudTask[]; error?: string }>;
     listPlanModes: (dsId: string) => Promise<{ ok?: boolean; data?: CloudPlanMode[]; error?: string }>;
     quickCapture: (text: string, type: 'page' | 'task', opts?: Record<string, unknown>) => Promise<{ ok?: boolean; data?: CloudPage | CloudTask; error?: string }>;
+  };
+  updater: {
+    onAvailable: (cb: (info: { version: string; releaseNotes?: string }) => void) => () => void;
+    onDownloaded: (cb: (info: { version: string; releaseNotes?: string }) => void) => () => void;
+    onProgress: (cb: (p: { percent: number; transferred: number; total: number }) => void) => () => void;
+    installNow: () => Promise<void>;
+  };
+  deepLink: {
+    onUrl: (cb: (url: string) => void) => () => void;
+  };
+  shell: {
+    openExternal: (url: string) => Promise<{ ok?: boolean; error?: string }>;
+  };
+  auth: {
+    loginEmail: (email: string, password: string) => Promise<{ ok?: boolean; token?: string; error?: string; isSessionToken?: boolean; status?: number; code?: string }>;
+    loginGoogle: () => Promise<{ ok?: boolean; error?: string }>;
+    getBaseUrl: () => Promise<string>;
+    testConnection: () => Promise<{ ok: boolean; status?: number; ms?: number; code?: string; message?: string }>;
   };
 }
 

@@ -37,6 +37,11 @@ export type {
 } from './sdd/types';
 export { COLUMN_ORDER, COLUMN_LABELS } from './sdd/types';
 
+// Skills — SKILL.md loader + registry
+export { SkillsRegistry }                    from './skills/registry';
+export { loadSkillFile, loadSkillsFromDir }  from './skills/loader';
+export type { Skill, SkillMeta, SkillSource } from './skills/types';
+
 // Cloud — Dataspheres API bridge
 export { DatasphereClient, DatasphereService, AuthError, NotFoundError, ApiError } from './cloud/service';
 export type {

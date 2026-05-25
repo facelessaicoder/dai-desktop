@@ -326,6 +326,77 @@ ipcMain.handle('auth:login-google', async () => {
   }
 });
 
+// ── Skills scanner (inline — no dai-core rebuild required) ───────────────────
+// Scans skill directories for SKILL.md files and returns lightweight metadata.
+// Bundled skills: sibling ari-dai-skills repo in dev, extraResources in prod.
+// User skills:    ~/.dai-desktop/skills/ (one subdirectory per skill).
+
+interface SkillMeta {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  argumentHint?: string;
+  source: 'bundled' | 'user';
+  filePath: string;
+}
+
+function parseSkillFrontmatter(raw: string): Record<string, string> {
+  const cleaned = raw.replace(/^<!--[\s\S]*?-->\s*/m, '');
+  const match   = /^---\r?\n([\s\S]*?)\r?\n---/.exec(cleaned);
+  if (!match) return {};
+  const out: Record<string, string> = {};
+  for (const line of match[1].split('\n')) {
+    const colon = line.indexOf(':');
+    if (colon < 0) continue;
+    const key = line.slice(0, colon).trim();
+    const val = line.slice(colon + 1).trim().replace(/^['"]|['"]$/g, '');
+    if (val) out[key] = val;
+  }
+  return out;
+}
+
+function scanSkillsDir(dir: string, source: 'bundled' | 'user'): SkillMeta[] {
+  const skills: SkillMeta[] = [];
+  if (!fs.existsSync(dir)) return skills;
+  try {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const skillFile = path.join(dir, entry.name, 'SKILL.md');
+      if (!fs.existsSync(skillFile)) continue;
+      try {
+        const raw  = fs.readFileSync(skillFile, 'utf-8');
+        const meta = parseSkillFrontmatter(raw);
+        const name = meta['name'] || entry.name;
+        skills.push({
+          id: `${source}:${name}`,
+          name,
+          description:  meta['description']     ?? '',
+          version:      meta['version']          ?? '1.0.0',
+          argumentHint: meta['argument-hint'],
+          source,
+          filePath: skillFile,
+        });
+      } catch { /* skip bad files */ }
+    }
+  } catch { /* skip unreadable dir */ }
+  return skills;
+}
+
+function listSkills(): SkillMeta[] {
+  const isDev = process.env.NODE_ENV === 'development';
+  // dev: sibling ari-dai-skills repo; prod: extraResources/skills
+  const bundledDir = isDev
+    ? path.join(__dirname, '..', '..', 'ari-dai-skills', 'skills')
+    : path.join((process as NodeJS.Process & { resourcesPath?: string }).resourcesPath ?? '', 'skills');
+  const userDir = path.join(require('os').homedir(), '.dai-desktop', 'skills');
+
+  return [
+    ...scanSkillsDir(bundledDir, 'bundled'),
+    ...scanSkillsDir(userDir,    'user'),
+  ];
+}
+
 // ── Lazy-import dai-core to avoid loading node-llama-cpp until needed ─────────
 // These are resolved at runtime from the compiled package output.
 let AgentLoop: typeof import('./packages/dai-core/dist/index').AgentLoop;
@@ -668,6 +739,15 @@ ipcMain.handle('agent:chat', async (event, { message, history }) => {
     return { error: true, message: 'Agent loop failed to initialize.' };
   }
 
+  // Tell the renderer which backend is actually being used for this turn.
+  // Fires before any tokens so the UI can stamp the message immediately.
+  const activeBackend: 'local' | 'ollama' | 'claude' | 'none' =
+    (modelPath && fs.existsSync(modelPath)) ? 'local'
+    : hasOllama                             ? 'ollama'
+    : hasClaudeKey                          ? 'claude'
+    : 'none';
+  event.sender.send('agent:backend', activeBackend);
+
   try {
     for await (const event_ of agentLoop.run(message, history ?? [])) {
       if (event_.type === 'text') {
@@ -976,5 +1056,26 @@ ipcMain.handle('cloud:quick-capture', async (
     return { ok: true, data };
   } catch (err) {
     return { error: friendlyCloudError(err) };
+  }
+});
+
+// ── IPC: skills ───────────────────────────────────────────────────────────────
+
+ipcMain.handle('skills:list', () => {
+  try {
+    return { ok: true, data: listSkills() };
+  } catch (err) {
+    return { error: String(err) };
+  }
+});
+
+ipcMain.handle('skills:get-content', (_event, filePath: string) => {
+  try {
+    if (typeof filePath !== 'string' || !filePath.endsWith('SKILL.md')) {
+      return { error: 'Invalid file path' };
+    }
+    return { ok: true, data: fs.readFileSync(filePath, 'utf-8') };
+  } catch (err) {
+    return { error: String(err) };
   }
 });

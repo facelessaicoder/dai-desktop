@@ -10,13 +10,30 @@ export interface OllamaStatus {
   models: string[];
 }
 
+export type BackendType = 'local' | 'ollama' | 'claude' | 'none';
+
+export interface SkillMeta {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  argumentHint?: string;
+  source: 'bundled' | 'user';
+  filePath: string;
+}
+
 export interface DaiAPI {
   chat: {
     send: (message: string, history: ChatMessage[]) => Promise<{ ok?: boolean; error?: boolean; message?: string }>;
-    onToken:      (cb: (token: string) => void)  => () => void;
-    onToolUse:    (cb: (data: unknown) => void)   => () => void;
-    onToolResult: (cb: (data: unknown) => void)   => () => void;
-    onDone:       (cb: (data: unknown) => void)   => () => void;
+    onToken:         (cb: (token: string) => void)       => () => void;
+    onToolUse:       (cb: (data: unknown) => void)       => () => void;
+    onToolResult:    (cb: (data: unknown) => void)       => () => void;
+    onDone:          (cb: (data: unknown) => void)       => () => void;
+    onBackendChange: (cb: (backend: BackendType) => void) => () => void;
+  };
+  skills: {
+    list: () => Promise<{ ok?: boolean; data?: SkillMeta[]; error?: string }>;
+    getContent: (filePath: string) => Promise<{ ok?: boolean; data?: string; error?: string }>;
   };
   model: {
     onOllamaStatus: (cb: (status: OllamaStatus) => void) => () => void;
@@ -108,6 +125,17 @@ const daiAPI: DaiAPI = {
       ipcRenderer.on('agent:done', handler);
       return () => ipcRenderer.removeListener('agent:done', handler);
     },
+
+    onBackendChange: (cb) => {
+      const handler = (_: Electron.IpcRendererEvent, backend: BackendType) => cb(backend);
+      ipcRenderer.on('agent:backend', handler);
+      return () => ipcRenderer.removeListener('agent:backend', handler);
+    },
+  },
+
+  skills: {
+    list:       ()         => ipcRenderer.invoke('skills:list'),
+    getContent: (filePath) => ipcRenderer.invoke('skills:get-content', filePath),
   },
 
   sdd: {
