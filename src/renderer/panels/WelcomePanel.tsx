@@ -350,14 +350,14 @@ const input: React.CSSProperties = {
   width: '100%',
 };
 
-// Super-dark money green with white text — saturated cool green, not the
-// olive/yellow forest tone of #2F3F1E. Reads like US-dollar-bill ink.
+// Super-dark money green with white text — saturated cool green, deep
+// enough to read as nearly-black at a glance but still distinctly green.
 const primaryBtn: React.CSSProperties = {
   padding: `${space[3]} ${space[6]}`,
   fontSize: font.body,
   fontWeight: font.medium,
   color: '#FFFFFF',
-  background: '#0A4720',
+  background: '#053319',
   border: 'none',
   borderRadius: 8,
   cursor: 'pointer',
