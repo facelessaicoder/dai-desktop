@@ -1,0 +1,186 @@
+<!-- dai-sync: skip -->
+---
+name: planner
+description: Manage Kanban tasks, plan modes, and project workflows in Dataspheres AI
+argument-hint: "[action] [options]"
+---
+
+# planner — Dataspheres AI Kanban & Task Management
+
+The dai planner skill lets you manage tasks, columns, and board configurations — all dai, every dai.
+
+## Core Workflows
+
+### Create a task
+```
+create_task(title="Fix auth bug", status_group_id="<id>", priority="HIGH", tags=["backend"])
+```
+
+### Bulk create tasks
+```
+bulk_create_tasks(tasks=[
+  {"title": "Task 1", "statusGroupId": "<id>", "priority": "HIGH"},
+  {"title": "Task 2", "statusGroupId": "<id>", "priority": "MEDIUM"},
+])
+```
+
+### List tasks
+```
+list_tasks(plan_mode_id="<id>", limit=50)
+```
+
+### Update a task
+```
+update_task(task_id="<id>", status_group_id="<done-group-id>")
+```
+
+### Search tasks
+```
+search_tasks(query="auth bug")
+```
+
+### List plan modes (boards)
+```
+list_plan_modes()
+```
+
+### Create a plan mode with template
+Templates: `default` | `ops` | `sprint` | `research` | `sales` | `editorial` | `crm`
+```
+create_plan_mode(name="Sprint Q2", template="sprint", tag_filter=["q2", "sprint"])
+```
+
+### Create a plan mode with custom columns + tag filter
+`tag_filter` scopes which tasks appear in this board. Infer it from the name automatically.
+`columns` overrides `template` when both are provided.
+```
+create_plan_mode(name="Wedding Planning", tag_filter=["wedding"], columns=[
+  {"name": "Ideas & Vision", "color": "#8B5CF6", "isDoneState": false},
+  {"name": "To Book / Confirm", "color": "#F59E0B", "isDoneState": false},
+  {"name": "In Progress", "color": "#3B82F6", "isDoneState": false},
+  {"name": "Vendor Confirmed", "color": "#22C55E", "isDoneState": false},
+  {"name": "Done", "color": "#6B7280", "isDoneState": true},
+])
+```
+
+### Update a plan mode (rename, tag filter, or replace/append columns)
+`tag_filter` and `columns` are full replacements. `add_columns` is append-only.
+**Always call `list_plan_modes` first before using `columns`** — omitted columns are deleted
+and their tasks remapped to column[0] of the new list.
+```
+update_plan_mode(mode_id="<id>", name="New Name")
+update_plan_mode(mode_id="<id>", tag_filter=["wedding"])
+
+# Full column replace (read current first, include everything you want to keep)
+update_plan_mode(mode_id="<id>", columns=[
+  {"name": "Ideas & Vision", "color": "#8B5CF6", "isDoneState": false},
+  {"name": "To Book / Confirm", "color": "#F59E0B", "isDoneState": false},
+  {"name": "In Progress", "color": "#3B82F6", "isDoneState": false},
+  {"name": "Vendor Confirmed", "color": "#22C55E", "isDoneState": false},
+  {"name": "Signed & Done", "color": "#6B7280", "isDoneState": true},
+])
+
+# Append-only — safe without reading first
+update_plan_mode(mode_id="<id>", add_columns=[
+  {"name": "Awaiting Review", "color": "#F59E0B", "isDoneState": false},
+])
+```
+
+### Add a single column to an existing plan mode
+```
+create_status_group(name="Blocked", color="#EF4444", plan_mode_id="<id>", is_done_state=false)
+```
+
+### List columns (status groups)
+```
+list_status_groups(plan_mode_id="<id>")
+```
+
+### Add a comment to a task
+```
+add_comment(task_id="<id>", content="Done — tested on staging ✅")
+
+# With screenshot attachments (hosted HTTPS URLs)
+add_comment(task_id="<id>", content="Reproduced on staging — see screenshot",
+            screenshots=["https://cdn.example.com/bug-shot.png"])
+```
+
+---
+
+## Rich Content in Tasks and Comments
+
+### Task Description (`content` field)
+
+Task descriptions support full Tiptap HTML — the same schema as pages. Use this to write detailed specs, acceptance criteria, or reference material directly on the card.
+
+```html
+<!-- Acceptance criteria as a checklist -->
+<h2>Acceptance Criteria</h2>
+<ul>
+  <li>User can reset password via email link</li>
+  <li>Link expires after 24 hours</li>
+  <li>Errors shown inline, not as alerts</li>
+</ul>
+
+<!-- Code reference -->
+<h2>Relevant Code</h2>
+<pre><code class="language-typescript">// auth/reset.ts — current implementation
+export async function sendResetLink(email: string) { ... }
+</code></pre>
+
+<!-- Mermaid diagram — flow or sequence diagrams work well for specs -->
+<div data-type="mermaid" data-source="sequenceDiagram
+  User->>API: POST /auth/reset
+  API->>Email: Send link
+  User->>API: GET /auth/reset?token=xyz
+  API->>User: Redirect to /new-password"></div>
+
+<!-- Embedded data card (live chart) -->
+<div data-type="dataCard"
+     data-datacard-id="card_abc"
+     data-dataset-id="ds_xyz"
+     data-datasphere-id="ds_default">[Data Card: Error Rate]</div>
+
+<!-- Link to a related page -->
+<p>See <a href="https://dataspheres.ai/app/my-ds/pages/auth-design">Auth Design Doc</a> for context.</p>
+```
+
+### Comment `content` Field
+
+Comments support plain text and basic inline formatting. For visual evidence (screenshots, screen recordings), use the `screenshots` array — these render as inline image attachments on the task card.
+
+```python
+# Plain text — most common
+add_comment(task_id="t1", content="Fixed in PR #42 — deploying to staging now.")
+
+# With screenshots — pass hosted HTTPS URLs (generate_media_image or upload_file first)
+add_comment(
+    task_id="t1",
+    content="Reproduced on Chrome/Windows. Screenshot attached.",
+    screenshots=["https://cdn.example.com/bug-chrome.png", "https://cdn.example.com/bug-win.png"],
+)
+```
+
+### Producing Artifacts to Attach
+
+**Generate an image, then attach to a comment:**
+```python
+img = generate_media_image(prompt="Architecture diagram, dark theme, clean lines")
+add_comment(task_id="t1", content="Proposed architecture:", screenshots=[img["url"]])
+```
+
+**Upload a local file, then attach:**
+```python
+result = upload_file("/path/to/screenshot.png")
+add_comment(task_id="t1", content="Screen recording from QA:", screenshots=[result["url"]])
+```
+
+## Priority Values
+`HIGH` | `MEDIUM` | `LOW`
+
+## SDD Integration
+For spec-driven development with the 5-column lifecycle (North Stars → Epics → Execution → Validation → Done), use the `all-dai-sdd` skill which wraps the planner with the full lifecycle protocol.
+
+## Error Patterns
+- "No active datasphere" → run `dai use <uri>`
+- 404 on task_id → task was deleted or wrong datasphere

@@ -1,0 +1,34 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:\\Users\\facel\\Projects\\live\\ari-dai-skills\\skills\\sdd-conductor\\sdd-conductor.mjs\" check-file-hook"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:\\Users\\facel\\Projects\\live\\ari-dai-skills\\skills\\sdd-conductor\\sdd-conductor.mjs\" progress-hook"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:\\Users\\facel\\Projects\\live\\ari-dai-skills\\skills\\sdd-conductor\\sdd-conductor.mjs\" session-start"
+          }
+        ]
+      }
+    ]
+  }
+}
