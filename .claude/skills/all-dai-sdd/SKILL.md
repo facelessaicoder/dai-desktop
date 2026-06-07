@@ -1,17 +1,19 @@
 <!-- dai-sync: skip -->
 # all-dai-sdd — Spec-Driven Development
 
-Drive feature implementation from a living spec hosted on Dataspheres AI. Six-column lifecycle with pre-flight research gating, sub-checklist propagation, dependency enforcement, and a live stakeholder dashboard.
+Drive feature implementation from a living spec hosted on Dataspheres AI. Seven-column lifecycle with pre-flight research gating, sub-checklist propagation, dependency enforcement, artifact tracing, and a live stakeholder dashboard.
 
 ---
 
-## Six-Column Lifecycle
+## Seven-Column Lifecycle
 
 ```
-Research  →  North Stars  →  Epics  →  Execution  →  Validation  →  Done
+Research  →  North Stars  →  Epics  →  Execution  →  Validation  →  Artifacts  →  Done
 ```
 
-Every SDD project uses exactly these six columns, in this order. When you create a plan mode for an initiative, you must create six status groups with these exact names — do NOT use the planner's default columns (To Do / In Progress / Done).
+Every SDD project uses exactly these seven columns, in this order. When you create a plan mode for an initiative, you must create seven status groups with these exact names — do NOT use the planner's default columns (To Do / In Progress / Done).
+
+**The Artifacts column is mandatory, not optional.** When a VA task passes its gate, the loop runner and conductor auto-create an AR (Artifact) task in the Artifacts column. AR tasks document what was actually produced: file paths, code snippets, config files, scripts, compiled models, generated content. Stubs with placeholder text are a gate failure — AR tasks must contain real implementation details extracted from the parent EX spec.
 
 **The Research column is the origin gate.** Nothing enters North Stars without a corresponding Research task that has passed Validation. This is not optional and cannot be waived.
 
@@ -309,17 +311,98 @@ The answers determine the mode:
 6. Always run `node sdd-conductor.mjs verify-gates` after sync to confirm CLEAN
 
 ### Mode: LOOP
-Triggered automatically when a VA task in the Validation column has at least one failed iteration (detected by scanning for `Ralph loop — iteration` in task comments). Also triggered when the user says "keep going", "resume the loop", "keep iterating", or "why did the loop stop":
-1. Fetch the VA task and read iteration history from comments
-2. Identify the current best result and the gap to the gate threshold
-3. Run the next iteration (apply last-known best fix, re-measure, check gate)
-4. Post iteration comment (see Ralph Loop Protocol section)
-5. If gate passes → mark VA task Done, propagate checklist ticks
-6. If North Star hit → post North Star comment, mark Done, exit loop
-7. If BLOCKED condition met → post blocker comment, mark task BLOCKED, stop
-8. Otherwise → loop (go to step 3, no user input needed)
 
-**LOOP mode is the default behavior for any failing VA task — not an exception.** Not waiting for the user is the rule, not the exception.
+Triggered automatically when: (a) a VA task in the Validation column has at least one failed iteration, or (b) the user says "keep going", "run continuously", "drive to done", "loop until 100%", or similar.
+
+---
+
+#### ⚠️ CRITICAL: Claude IS the executor — never rubber-stamp
+
+The worst failure mode in SDD is an AI marking tasks Done without doing the work. Ticking all checkboxes and posting a boilerplate "PASS" comment while the implementation is untested or broken is **worse than leaving the task in Execution** — it creates false confidence.
+
+**Claude must:**
+- READ each task's full content before advancing it
+- EXECUTE the implementation (run commands, write files, call APIs)
+- ANALYZE outputs — real results vs the AC thresholds, not assumed
+- UPDATE tasks with learnings — bugs found, approaches tried, fixes applied
+- Only ADVANCE when the evidence is real and traceable
+
+**Claude must NOT:**
+- Tick all checkboxes without verifying each criterion
+- Post a gate comment before running anything
+- Mark a VA task Done without actually testing the acceptance criteria
+- Assume an EX task is complete because the spec says it should work
+- Use `node loop.mjs` (bare, no flags) when Claude is in the conversation — that path rubber-stamps
+
+---
+
+#### AI-Driven Loop Protocol (mandatory when Claude is active)
+
+```bash
+# Step 1 — read the next task
+node skills/all-dai-sdd/loop.mjs --next
+# → outputs JSON: { status, done, total, pct, task: { id, title, key, type, content } }
+
+# Step 2 — Claude reads the task content and does the actual work:
+#   EX task: reads Implementation Files, verifies files exist, runs smoke test
+#   VA task: runs each AC criterion, measures actual results vs thresholds
+#   EP task: confirms all child EX+VA are Done, reads and validates epic AC
+#   RS task: runs start_research, populates findings, cites real URLs
+
+# Step 3 — advance with REAL evidence (not boilerplate)
+node skills/all-dai-sdd/loop.mjs --advance <taskId> --evidence "
+[EXECUTED]
+<command or test that was run>
+
+[OUTPUT]
+<actual output — file paths, numbers, error messages, screenshots>
+
+[VERDICT]
+<what passed, what failed, what was fixed>
+"
+# Evidence is validated — min 200 chars, boilerplate patterns are rejected
+```
+
+**Evidence must contain real substance:**
+
+| Task type | Evidence must include |
+|---|---|
+| EX | File existence check (`ls -la path/to/file`), import or smoke test output |
+| VA | Actual measured value vs AC threshold (e.g. `denoise=0.90 → output saved at outputs/test.png`) |
+| EP | List of child task keys confirmed Done + epic AC cross-check |
+| RS | At least 2 real URLs from search results + feasibility finding |
+| AR | Real file paths with sizes or line counts from the implementation |
+
+**What to do when a task fails:**
+1. Post a comment on the task documenting what failed and why
+2. Fix the issue (edit code, install dependency, change approach)
+3. Re-run and verify the fix works
+4. Advance with evidence that includes the failure → fix → re-run trace
+5. If unfixable: mark task BLOCKED with a detailed blocker comment
+
+---
+
+#### Mechanical Loop (headless / no AI in context)
+
+The bare mechanical loop is for CI/CD or unattended runs where no AI is present. It ticks checklists and moves tasks but posts only structural gate comments — **it does not test, execute, or verify anything**.
+
+```bash
+node skills/all-dai-sdd/loop.mjs                      # active initiative
+node skills/all-dai-sdd/loop.mjs --initiative <slug>  # specific initiative
+node skills/all-dai-sdd/loop.mjs --dry-run            # preview only
+```
+
+**When Claude is in the conversation, this mode is BANNED.** If you see the bare loop suggested, override it with the AI-driven protocol above.
+
+---
+
+#### Utility modes
+
+```bash
+node loop.mjs --backfill-artifacts   # create AR tasks for Done VA tasks retroactively
+```
+
+**LOOP mode is the default behavior — not an exception.** Not waiting for the user is the rule. But not waiting does not mean not verifying.
 
 ### Mode: REFACTOR
 Triggered when user says "refactor", "restructure", or "reorganize":
@@ -575,7 +658,7 @@ GET existing plan modes first. If none match `tagFilter: ["<initiative>"]`, POST
 curl -X POST "$DATASPHERES_BASE_URL/api/v2/dataspheres/<dsId>/tasks/plan-modes" \
   -H "Authorization: Bearer $DATASPHERES_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"name":"<Initiative Name>","tagFilter":["<initiative-slug>"],"columns":[{"name":"Research","color":"#6366f1","isDoneState":false},{"name":"North Stars","color":"#7c3aed","isDoneState":false},{"name":"Epics","color":"#0891b2","isDoneState":false},{"name":"Execution","color":"#3b82f6","isDoneState":false},{"name":"Validation","color":"#f59e0b","isDoneState":false},{"name":"Done","color":"#22c55e","isDoneState":true}]}'
+  -d '{"name":"<Initiative Name>","tagFilter":["<initiative-slug>"],"columns":[{"name":"Research","color":"#6366f1","isDoneState":false},{"name":"North Stars","color":"#7c3aed","isDoneState":false},{"name":"Epics","color":"#0891b2","isDoneState":false},{"name":"Execution","color":"#3b82f6","isDoneState":false},{"name":"Validation","color":"#f59e0b","isDoneState":false},{"name":"Artifacts","color":"#8B5CF6","isDoneState":true},{"name":"Done","color":"#22c55e","isDoneState":true}]}'
 ```
 
 If the API does not accept `columns` on POST (older server version), omit it and clean up defaults in step 8:
